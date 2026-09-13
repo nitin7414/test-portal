@@ -13,8 +13,9 @@ import {
   UsersIcon, BookOpenIcon, BarChartIcon, SettingsIcon, PlusIcon, TrashIcon,
   SearchIcon, RefreshIcon, DatabaseIcon, AlertTriangleIcon, XIcon, CheckCircleIcon,
   ClockIcon, ZapIcon, AwardIcon, ShieldIcon, LogOutIcon, ArrowRightIcon, ChevronRightIcon,
-  MenuIcon, CalendarIcon,
+  MenuIcon, CalendarIcon, UploadIcon,
 } from '@/components/ui/Icons';
+import { GenerateTestView } from '@/components/dashboard/GenerateTestView';
 
 interface AdminDashboardProps {
   session: AuthSession;
@@ -22,7 +23,7 @@ interface AdminDashboardProps {
   onSwitchToLanding?: () => void;
 }
 
-type Tab = 'overview' | 'students' | 'tests' | 'settings';
+type Tab = 'overview' | 'students' | 'tests' | 'generate' | 'settings';
 
 const STATUS_COLORS: Record<string, string> = {
   active:    'bg-emerald-100 text-emerald-800 border-emerald-200',
@@ -124,6 +125,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
     { id: 'overview', label: 'Overview', icon: <BarChartIcon size={16} /> },
     { id: 'students', label: 'Students', icon: <UsersIcon size={16} /> },
     { id: 'tests',    label: 'Tests',    icon: <BookOpenIcon size={16} /> },
+    { id: 'generate', label: 'Generate new test', icon: <UploadIcon size={16} /> },
     { id: 'settings', label: 'Settings', icon: <SettingsIcon size={16} /> },
   ];
 
@@ -632,6 +634,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
                   </div>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* GENERATE NEW TEST TAB */}
+          {activeTab === 'generate' && (
+            <div className={`transition-all duration-500 ${isLoaded ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
+              <GenerateTestView
+                students={students}
+                onTestCreated={(newTest) => {
+                  refresh();
+                  setActiveTab('tests');
+                }}
+                showToast={showToast}
+              />
             </div>
           )}
 
