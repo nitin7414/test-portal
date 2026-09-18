@@ -151,7 +151,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   const scoreMeta = getScoreMeta(stats.averagePercentage);
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] pb-20">
+    <div className="min-h-screen bg-[#F8FAFC] pb-28 md:pb-20">
 
       {/* ========================================================================= */}
       {/* 1. TOP NAVIGATION HEADER                                                  */}
@@ -390,6 +390,56 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
           </div>
         </div>
       )}
+
+      {/* MOBILE BOTTOM TAB BAR FOR STUDENT */}
+      <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 flex shadow-2xl">
+        <button
+          type="button"
+          onClick={() => setActiveTab('dashboard')}
+          className={`flex-1 flex flex-col items-center justify-center gap-1 py-2 text-[10px] font-bold uppercase tracking-wider transition-colors cursor-pointer ${
+            activeTab === 'dashboard' ? 'text-indigo-400' : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <SparklesIcon size={16} />
+          <span>Dashboard</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('browse')}
+          className={`flex-1 flex flex-col items-center justify-center gap-1 py-2 text-[10px] font-bold uppercase tracking-wider transition-colors cursor-pointer relative ${
+            activeTab === 'browse' ? 'text-indigo-400' : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <div className="relative">
+            <CalendarIcon size={16} />
+            {upcomingTests.length > 0 && (
+              <span className="absolute -top-1.5 -right-3 h-4 min-w-[16px] px-1 bg-indigo-600 text-white rounded-full text-[9px] font-black flex items-center justify-center">
+                {upcomingTests.length}
+              </span>
+            )}
+          </div>
+          <span>1. Browse</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setActiveTab('tests_taken')}
+          className={`flex-1 flex flex-col items-center justify-center gap-1 py-2 text-[10px] font-bold uppercase tracking-wider transition-colors cursor-pointer relative ${
+            activeTab === 'tests_taken' ? 'text-indigo-400' : 'text-slate-400 hover:text-slate-200'
+          }`}
+        >
+          <div className="relative">
+            <AwardIcon size={16} />
+            {results.length > 0 && (
+              <span className="absolute -top-1.5 -right-3 h-4 min-w-[16px] px-1 bg-slate-700 text-slate-200 rounded-full text-[9px] font-black flex items-center justify-center">
+                {results.length}
+              </span>
+            )}
+          </div>
+          <span>2. Taken</span>
+        </button>
+      </div>
 
       {/* ========================================================================= */}
       {/* 3. VIEW 1: DASHBOARD OVERVIEW                                            */}

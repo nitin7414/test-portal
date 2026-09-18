@@ -121,12 +121,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
     setResetConfirm(null);
   };
 
-  const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
-    { id: 'overview', label: 'Overview', icon: <BarChartIcon size={16} /> },
-    { id: 'students', label: 'Students', icon: <UsersIcon size={16} /> },
-    { id: 'tests',    label: 'Tests',    icon: <BookOpenIcon size={16} /> },
-    { id: 'generate', label: 'Generate new test', icon: <UploadIcon size={16} /> },
-    { id: 'settings', label: 'Settings', icon: <SettingsIcon size={16} /> },
+  const TABS: { id: Tab; label: string; mobileLabel?: string; icon: React.ReactNode }[] = [
+    { id: 'overview', label: 'Overview', mobileLabel: 'Overview', icon: <BarChartIcon size={16} /> },
+    { id: 'students', label: 'Students', mobileLabel: 'Students', icon: <UsersIcon size={16} /> },
+    { id: 'tests',    label: 'Tests',    mobileLabel: 'Tests',    icon: <BookOpenIcon size={16} /> },
+    { id: 'generate', label: 'Generate new test', mobileLabel: 'Generate', icon: <UploadIcon size={16} /> },
+    { id: 'settings', label: 'Settings', mobileLabel: 'Settings', icon: <SettingsIcon size={16} /> },
   ];
 
   return (
@@ -318,18 +318,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex-1 flex flex-col items-center gap-1 py-2.5 text-[10px] font-bold uppercase tracking-wider transition-colors cursor-pointer ${
+              className={`flex-1 flex flex-col items-center justify-center gap-1 py-2 text-[10px] font-bold uppercase tracking-wider transition-colors cursor-pointer ${
                 activeTab === tab.id ? 'text-indigo-400' : 'text-slate-500 hover:text-slate-300'
               }`}
             >
               {tab.icon}
-              {tab.label}
+              <span className="truncate max-w-full px-0.5">{tab.mobileLabel || tab.label}</span>
             </button>
           ))}
         </div>
 
         {/* MAIN CONTENT CONTAINER */}
-        <main className="flex-1 lg:ml-64 pt-16 lg:pt-0 pb-20 lg:pb-0 min-h-screen">
+        <main className="flex-1 lg:ml-64 pt-16 lg:pt-0 pb-24 lg:pb-0 min-h-screen">
 
           {/* OVERVIEW TAB */}
           {activeTab === 'overview' && (

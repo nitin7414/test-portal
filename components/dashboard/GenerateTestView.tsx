@@ -341,7 +341,7 @@ export const GenerateTestView: React.FC<GenerateTestViewProps> = ({
   });
 
   return (
-    <div className="p-6 lg:p-8 space-y-8 animate-fade-in max-w-6xl mx-auto">
+    <div className="p-4 sm:p-6 lg:p-8 pb-36 lg:pb-12 space-y-8 animate-fade-in max-w-6xl mx-auto">
       {/* Header Banner */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-6">
         <div>
@@ -858,9 +858,9 @@ export const GenerateTestView: React.FC<GenerateTestViewProps> = ({
           </div>
 
           {/* STEP 4: UPLOAD PAPER BUTTON */}
-          <div className="sticky bottom-6 z-20 bg-slate-900/95 backdrop-blur-md border border-slate-800 rounded-3xl p-5 sm:p-6 shadow-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="sticky bottom-20 lg:bottom-6 z-20 bg-slate-900/95 backdrop-blur-md border border-slate-800 rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div>
-              <h4 className="text-base font-extrabold text-white">Ready to Publish Test?</h4>
+              <h4 className="text-sm sm:text-base font-extrabold text-white">Ready to Publish Test?</h4>
               <p className="text-xs text-slate-400 mt-0.5">
                 Total {questions.length} questions • Scheduled for{' '}
                 <span className="text-white font-bold">{scheduledDate || 'TBD'}</span> at{' '}

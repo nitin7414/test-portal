@@ -17,6 +17,7 @@ import {
   ShieldIcon,
   SparklesIcon,
   AwardIcon,
+  GridIcon,
 } from '@/components/ui/Icons';
 import { saveStudentTestResult } from '@/lib/student-history';
 
@@ -75,6 +76,7 @@ export const ExamEngine: React.FC<ExamEngineProps> = ({
   // Server-authoritative countdown timer state (ticking locally every 1s from immutable server startedAt)
   const [remainingSeconds, setRemainingSeconds] = useState<number>(durationSeconds);
   const [submitting, setSubmitting] = useState(false);
+  const [mobilePaletteOpen, setMobilePaletteOpen] = useState(false);
 
   // Derive client-side countdown smoothly from authoritative startedAt
   useEffect(() => {
@@ -412,17 +414,17 @@ export const ExamEngine: React.FC<ExamEngineProps> = ({
       {/* ========================================================================= */}
       {/* 1. TOP PERSISTENT EXAM BAR                                                */}
       {/* ========================================================================= */}
-      <header className="h-16 bg-white border-b border-slate-200/90 px-4 sm:px-6 flex items-center justify-between shrink-0 shadow-xs z-30">
+      <header className="h-14 sm:h-16 bg-white border-b border-slate-200/90 px-3 sm:px-6 flex items-center justify-between shrink-0 shadow-xs z-30">
         {/* Left: Test info & Candidate */}
-        <div className="flex items-center gap-3">
-          <div className="h-8 w-8 rounded-xl bg-black text-white font-black text-xs flex items-center justify-center">
+        <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          <div className="h-7 w-7 sm:h-8 sm:w-8 rounded-xl bg-black text-white font-black text-xs flex items-center justify-center shrink-0">
             TP
           </div>
-          <div>
-            <h1 className="font-bold text-xs sm:text-sm text-black leading-none truncate max-w-[180px] sm:max-w-xs">
+          <div className="min-w-0">
+            <h1 className="font-bold text-xs sm:text-sm text-black leading-none truncate max-w-[100px] xs:max-w-[160px] sm:max-w-xs">
               {test.title}
             </h1>
-            <span className="text-[10px] text-slate-500 font-medium">
+            <span className="hidden sm:block text-[10px] text-slate-500 font-medium truncate">
               Candidate: <strong className="text-slate-800">{candidateName}</strong>
             </span>
           </div>
@@ -430,7 +432,7 @@ export const ExamEngine: React.FC<ExamEngineProps> = ({
 
         {/* Center: Server-Authoritative Countdown Timer */}
         <div
-          className={`flex items-center gap-2 px-3 sm:px-4 py-1.5 rounded-2xl border font-mono font-black text-sm sm:text-base tracking-wider transition-all duration-300 ${
+          className={`flex items-center gap-1.5 sm:gap-2 px-2.5 sm:px-4 py-1 sm:py-1.5 rounded-xl sm:rounded-2xl border font-mono font-black text-xs sm:text-base tracking-wider transition-all duration-300 shrink-0 ${
             isTimerCritical
               ? 'bg-rose-50 border-rose-400 text-rose-700 animate-pulse'
               : isTimerWarning
@@ -439,12 +441,12 @@ export const ExamEngine: React.FC<ExamEngineProps> = ({
           }`}
           aria-label="Time Remaining"
         >
-          <ClockIcon size={16} className={isTimerCritical ? 'text-rose-600' : isTimerWarning ? 'text-amber-600' : 'text-slate-600'} />
+          <ClockIcon size={15} className={isTimerCritical ? 'text-rose-600' : isTimerWarning ? 'text-amber-600' : 'text-slate-600'} />
           <span>{formatTimer(remainingSeconds)}</span>
         </div>
 
         {/* Right: Autosave Status & Submit Action */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
           {/* Sync Status Badge */}
           <div className="hidden sm:flex items-center gap-1.5 text-[11px] font-medium text-slate-500">
             {syncStatus === 'saving' && (
@@ -474,9 +476,9 @@ export const ExamEngine: React.FC<ExamEngineProps> = ({
             variant="secondary"
             size="sm"
             onClick={() => setShowSubmitModal(true)}
-            className="cursor-pointer"
+            className="cursor-pointer text-xs px-2.5 sm:px-3.5 py-1.5 font-bold"
           >
-            Submit Test
+            Submit<span className="hidden sm:inline">&nbsp;Test</span>
           </Button>
         </div>
       </header>
@@ -531,7 +533,7 @@ export const ExamEngine: React.FC<ExamEngineProps> = ({
       {/* ========================================================================= */}
       <div className="flex-1 flex overflow-hidden">
         {/* Left Primary Question Canvas */}
-        <main id="exam-workspace" data-lenis-prevent="true" className="flex-1 flex flex-col justify-between overflow-y-auto p-4 sm:p-8 max-w-4xl mx-auto w-full">
+        <main id="exam-workspace" data-lenis-prevent="true" className="flex-1 flex flex-col justify-between overflow-y-auto p-3.5 sm:p-8 pb-28 sm:pb-32 lg:pb-8 max-w-4xl mx-auto w-full">
           <div className="space-y-6">
             {/* Question Header Meta */}
             <div className="flex items-center justify-between pb-3 border-b border-slate-200">
@@ -742,8 +744,8 @@ export const ExamEngine: React.FC<ExamEngineProps> = ({
             )}
           </div>
 
-          {/* Bottom Question Controls Toolbar */}
-          <div className="pt-6 border-t border-slate-200 flex items-center justify-between gap-3 mt-6">
+          {/* Bottom Question Controls Toolbar (Desktop) */}
+          <div className="pt-6 border-t border-slate-200 hidden lg:flex items-center justify-between gap-3 mt-6">
             <div className="flex items-center gap-2">
               <Button
                 id="btn-prev-question"
@@ -881,6 +883,202 @@ export const ExamEngine: React.FC<ExamEngineProps> = ({
           </div>
         </aside>
       </div>
+
+      {/* ========================================================================= */}
+      {/* MOBILE FIXED ACTION BOTTOM BAR (Always visible, thumb-reachable, no-scroll)*/}
+      {/* ========================================================================= */}
+      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 px-3 py-2.5 shadow-2xl flex items-center justify-between gap-2">
+        {/* Previous Button */}
+        <button
+          id="btn-prev-question-mobile"
+          type="button"
+          disabled={currentQuestionIndex === 0}
+          onClick={() => setCurrentIndex(currentQuestionIndex - 1)}
+          className="flex items-center gap-1 px-3 py-2 rounded-xl text-xs font-bold border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-40 disabled:pointer-events-none transition-all cursor-pointer shrink-0 active:scale-95"
+          aria-label="Previous Question"
+        >
+          <ChevronLeftIcon size={16} />
+          <span>Prev</span>
+        </button>
+
+        {/* Center: Question Palette Sheet Trigger & Flag Toggle */}
+        <div className="flex items-center gap-1.5">
+          {/* Question Palette Trigger */}
+          <button
+            type="button"
+            onClick={() => setMobilePaletteOpen(true)}
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-black bg-slate-100 hover:bg-slate-200 text-slate-900 border border-slate-200/80 transition-all cursor-pointer active:scale-95"
+            aria-label="Open Question Palette"
+          >
+            <GridIcon size={14} className="text-slate-600" />
+            <span>Q {currentQuestionIndex + 1}/{questions.length}</span>
+          </button>
+
+          {/* Mark for Review Toggle */}
+          <button
+            type="button"
+            onClick={() => toggleMarkForReview(currentQ.id)}
+            className={`p-2 rounded-xl border transition-all cursor-pointer active:scale-95 ${
+              markedForReview.includes(currentQ.id)
+                ? 'bg-amber-500 border-amber-500 text-white shadow-xs'
+                : 'bg-white border-slate-200 text-slate-400 hover:text-slate-700'
+            }`}
+            title={markedForReview.includes(currentQ.id) ? 'Question Flagged' : 'Mark for Review'}
+            aria-label="Mark for Review"
+          >
+            <FlagIcon size={15} />
+          </button>
+
+          {/* Clear answer button (if answered) */}
+          {answers[currentQ.id] && (
+            <button
+              type="button"
+              onClick={() => handleClearResponse(currentQ.id)}
+              className="text-[11px] font-semibold text-rose-600 hover:text-rose-700 px-1.5 py-1 transition-colors cursor-pointer"
+              title="Clear Selected Answer"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+
+        {/* Next Question or Review & Submit Button */}
+        {currentQuestionIndex < questions.length - 1 ? (
+          <button
+            id="btn-next-question-mobile"
+            type="button"
+            onClick={() => setCurrentIndex(currentQuestionIndex + 1)}
+            className="flex items-center gap-1 px-4 py-2 rounded-xl text-xs font-black bg-slate-950 hover:bg-black text-white shadow-md transition-all cursor-pointer shrink-0 active:scale-95"
+            aria-label="Next Question"
+          >
+            <span>Next</span>
+            <ChevronRightIcon size={16} />
+          </button>
+        ) : (
+          <button
+            id="btn-review-submit-mobile"
+            type="button"
+            onClick={() => setShowSubmitModal(true)}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-black bg-emerald-600 hover:bg-emerald-700 text-white shadow-md transition-all cursor-pointer shrink-0 active:scale-95"
+            aria-label="Submit Assessment"
+          >
+            <span>Submit</span>
+            <CheckCircleIcon size={16} />
+          </button>
+        )}
+      </div>
+
+      {/* ========================================================================= */}
+      {/* MOBILE QUESTION PALETTE DRAWER / BOTTOM SHEET                             */}
+      {/* ========================================================================= */}
+      {mobilePaletteOpen && (
+        <div data-lenis-prevent="true" className="lg:hidden fixed inset-0 z-50 flex flex-col justify-end">
+          {/* Dark Backdrop */}
+          <div
+            className="fixed inset-0 bg-black/60 backdrop-blur-xs transition-opacity"
+            onClick={() => setMobilePaletteOpen(false)}
+          />
+
+          {/* Sheet Container */}
+          <div className="relative w-full max-h-[82vh] bg-white rounded-t-3xl border-t border-slate-200 p-5 shadow-2xl z-50 flex flex-col animate-slide-up">
+            {/* Sheet Handle */}
+            <div className="w-12 h-1 bg-slate-300 rounded-full mx-auto mb-3" />
+
+            {/* Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-slate-200">
+              <div>
+                <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
+                  <GridIcon size={16} className="text-slate-700" />
+                  <span>Question Palette</span>
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {totalAnswered} of {questions.length} Attempted
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMobilePaletteOpen(false)}
+                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-xl hover:bg-slate-100 transition-colors cursor-pointer text-lg leading-none font-bold"
+                aria-label="Close question palette"
+              >
+                &times;
+              </button>
+            </div>
+
+            {/* Progress bar */}
+            <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden my-3">
+              <div
+                className="bg-black h-full transition-all duration-300"
+                style={{ width: `${(totalAnswered / questions.length) * 100}%` }}
+              />
+            </div>
+
+            {/* Status Legend */}
+            <div className="grid grid-cols-2 xs:grid-cols-4 gap-2 text-[10px] font-semibold text-slate-600 pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-1.5">
+                <span className="h-3 w-3 rounded-md bg-black shrink-0" />
+                <span>Answered ({totalAnswered})</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="h-3 w-3 rounded-md bg-slate-200 shrink-0" />
+                <span>Unattempted ({totalUnanswered})</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="h-3 w-3 rounded-md bg-amber-500 shrink-0" />
+                <span>Marked ({markedForReview.length})</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="h-3 w-3 rounded-md border-2 border-black bg-white shrink-0" />
+                <span>Current</span>
+              </div>
+            </div>
+
+            {/* Palette Grid */}
+            <div className="grid grid-cols-5 sm:grid-cols-6 gap-2.5 overflow-y-auto max-h-60 py-3 pr-1">
+              {questions.map((q, idx) => {
+                const isAnswered = Boolean(answers[q.id]);
+                const isMarked = markedForReview.includes(q.id);
+                const isCurrent = currentQuestionIndex === idx;
+
+                let pillClass = 'bg-slate-100 text-slate-700 hover:bg-slate-200';
+
+                if (isCurrent) {
+                  pillClass = 'ring-2 ring-black bg-white text-black font-black';
+                } else if (isMarked) {
+                  pillClass = 'bg-amber-500 text-white font-bold';
+                } else if (isAnswered) {
+                  pillClass = 'bg-black text-white font-bold';
+                }
+
+                return (
+                  <button
+                    key={q.id}
+                    type="button"
+                    onClick={() => {
+                      setCurrentIndex(idx);
+                      setMobilePaletteOpen(false);
+                    }}
+                    className={`h-10 rounded-xl flex items-center justify-center text-xs font-mono font-bold transition-all cursor-pointer ${pillClass}`}
+                  >
+                    {idx + 1}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Bottom Dismiss Button */}
+            <div className="pt-3 border-t border-slate-200">
+              <button
+                type="button"
+                onClick={() => setMobilePaletteOpen(false)}
+                className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold transition-all cursor-pointer"
+              >
+                Close Palette
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ========================================================================= */}
       {/* 4. PRE-SUBMISSION CONFIRMATION MODAL                                      */}

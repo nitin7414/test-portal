@@ -170,40 +170,40 @@ export default function LandingPage() {
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-slate-900 selection:bg-black selection:text-white relative flex flex-col justify-between">
       {/* Top Floating Header */}
-      <header className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 sm:px-8 py-3.5 bg-white/85 backdrop-blur-md border-b border-slate-200/80">
-        <div className="flex items-center gap-2.5">
-          <div className="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-xl bg-black text-white font-black text-xs sm:text-sm tracking-widest shadow-xs">
+      <header className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-3 sm:px-8 py-2.5 sm:py-3.5 bg-white/90 backdrop-blur-md border-b border-slate-200/80">
+        <div className="flex items-center gap-2 sm:gap-2.5 min-w-0">
+          <div className="flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-xl bg-black text-white font-black text-xs sm:text-sm tracking-widest shadow-xs shrink-0">
             TP
           </div>
-          <div>
-            <span className="font-bold text-sm sm:text-base tracking-tight text-black block leading-none">
+          <div className="min-w-0">
+            <span className="font-bold text-sm sm:text-base tracking-tight text-black block leading-none truncate">
               TEST PORTAL
             </span>
-            <span className="text-[9px] sm:text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+            <span className="hidden sm:block text-[9px] sm:text-[10px] font-semibold uppercase tracking-widest text-slate-500 truncate">
               Exam & Proctoring Engine
             </span>
           </div>
         </div>
 
-        <div className="flex items-center gap-2 sm:gap-3">
+        <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
           {session ? (
-            <div className="flex items-center gap-2 sm:gap-3">
+            <div className="flex items-center gap-1.5 sm:gap-2.5">
               {session.user.role === 'student' && (
                 <button
                   type="button"
                   onClick={() => setViewMode(viewMode === 'dashboard' ? 'landing' : 'dashboard')}
-                  className="text-xs font-semibold px-2.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 transition-colors cursor-pointer"
+                  className="text-[11px] sm:text-xs font-semibold px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 transition-colors cursor-pointer"
                 >
-                  {viewMode === 'dashboard' ? 'Landing View' : 'My Dashboard'}
+                  {viewMode === 'dashboard' ? 'Landing' : 'Dashboard'}
                 </button>
               )}
               {session.user.role === 'admin' && viewMode !== 'dashboard' && (
                 <button
                   type="button"
                   onClick={() => setViewMode('dashboard')}
-                  className="text-xs font-semibold px-2.5 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 transition-colors cursor-pointer"
+                  className="text-[11px] sm:text-xs font-semibold px-2 sm:px-2.5 py-1 sm:py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 transition-colors cursor-pointer"
                 >
-                  Admin Console
+                  Console
                 </button>
               )}
               <Badge variant={session.user.role === 'admin' ? 'neutral' : 'primary'} dot size="sm">
@@ -217,8 +217,9 @@ export default function LandingPage() {
                 size="sm"
                 onClick={handleLogout}
                 leftIcon={<LogOutIcon size={13} />}
+                className="px-2 sm:px-3 text-xs"
               >
-                Logout
+                <span className="hidden xs:inline">Logout</span>
               </Button>
             </div>
           ) : (
@@ -226,7 +227,7 @@ export default function LandingPage() {
               variant="outline"
               size="sm"
               onClick={scrollToLogin}
-              className="lg:hidden"
+              className="lg:hidden text-xs px-2.5 py-1.5"
             >
               Sign In
             </Button>
@@ -238,7 +239,7 @@ export default function LandingPage() {
       {/* MAIN CONTAINER: DESKTOP SIDE-BY-SIDE (LEFT: GREETING, RIGHT: LOGIN FORM)  */}
       {/* MOBILE: TIGHT VERTICAL FLOW (COMPACT GREETINGS -> IMMEDIATE LOGIN FORM)   */}
       {/* ========================================================================= */}
-      <main className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-10 pt-18 sm:pt-22 pb-8 sm:pb-12 flex-1 flex flex-col justify-center">
+      <main className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-10 pt-16 sm:pt-22 pb-8 sm:pb-12 flex-1 flex flex-col justify-center">
         {/* Subtle grid background pattern */}
         <div className="fixed inset-0 -z-10 pointer-events-none opacity-25 [background-image:radial-gradient(#94a3b8_1px,transparent_1px)] [background-size:24px_24px]" />
 
@@ -247,7 +248,7 @@ export default function LandingPage() {
           {/* LEFT SIDE: SCALED BLACK GREETING WORDS ONLY                             */}
           {/* ----------------------------------------------------------------------- */}
           <div className="lg:col-span-7 xl:col-span-7 flex flex-col items-center lg:items-start text-center lg:text-left justify-center py-1 sm:py-2 lg:py-6">
-            <h1 className="text-5xl sm:text-6xl md:text-7xl lg:text-8xl xl:text-9xl font-black uppercase tracking-tighter text-black leading-[0.88] select-none">
+            <h1 className="text-3xl xs:text-4xl sm:text-6xl md:text-7xl lg:text-8xl xl:text-9xl font-black uppercase tracking-tighter text-black leading-[0.92] select-none">
               WELCOME TO <br />
               <span className="inline-block text-black drop-shadow-xs">
                 TEST PORTAL
