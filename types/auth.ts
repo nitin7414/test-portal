@@ -5,6 +5,7 @@ export interface UserAccount {
   name: string;
   email: string;
   role: UserRole;
+  isSuperAdmin?: boolean;
   studentId?: string;
   batch?: string;
   passwordHash: string; // bcrypt hashed password
@@ -19,6 +20,7 @@ export interface AuthSession {
     name: string;
     email: string;
     role: UserRole;
+    isSuperAdmin?: boolean;
     studentId?: string;
     batch?: string;
   };

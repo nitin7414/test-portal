@@ -3,6 +3,7 @@ import { Plus_Jakarta_Sans, JetBrains_Mono } from 'next/font/google';
 import './globals.css';
 import { SmoothScrollProvider } from '@/components/providers/SmoothScrollProvider';
 import { ConvexClientProvider } from '@/components/providers/ConvexClientProvider';
+import { OfflineMonitor } from '@/components/network/OfflineMonitor';
 
 const plusJakarta = Plus_Jakarta_Sans({
   variable: '--font-sans',
@@ -31,10 +32,15 @@ export default function RootLayout({
   return (
     <html
       lang="en"
+      suppressHydrationWarning
       className={`${plusJakarta.variable} ${jetbrainsMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-[#F8FAFC] text-slate-900 font-sans">
+      <body
+        suppressHydrationWarning
+        className="min-h-full flex flex-col bg-[#F8FAFC] text-slate-900 font-sans"
+      >
         <ConvexClientProvider>
+          <OfflineMonitor />
           <SmoothScrollProvider>{children}</SmoothScrollProvider>
         </ConvexClientProvider>
       </body>

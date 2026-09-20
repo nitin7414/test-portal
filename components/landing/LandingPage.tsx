@@ -24,7 +24,6 @@ import {
   clearActiveSession,
   createStudentAccount,
   getAllUsers,
-  DEFAULT_CREDENTIALS,
 } from '@/lib/auth';
 import { AuthSession, UserRole, UserAccount } from '@/types/auth';
 import { StudentDashboard } from '@/components/dashboard/StudentDashboard';
@@ -39,14 +38,15 @@ export default function LandingPage() {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
-  const [session, setSession] = useState<AuthSession | null>(() =>
-    typeof window !== 'undefined' ? getActiveSession() : null
-  );
-  const [usersList, setUsersList] = useState<UserAccount[]>(() =>
-    typeof window !== 'undefined' ? getAllUsers() : []
-  );
+  const [isMounted, setIsMounted] = useState(false);
+  const [session, setSession] = useState<AuthSession | null>(null);
+  const [usersList, setUsersList] = useState<UserAccount[]>([]);
 
   useEffect(() => {
+    setIsMounted(true);
+    setSession(getActiveSession());
+    setUsersList(getAllUsers());
+
     const handleUsersUpdate = () => {
       setUsersList(getAllUsers());
     };
@@ -86,17 +86,6 @@ export default function LandingPage() {
     setSuccessMsg(null);
     setIdentifier('');
     setPassword('');
-  };
-
-  const fillQuickCredentials = (role: UserRole) => {
-    if (role === 'student') {
-      setIdentifier(DEFAULT_CREDENTIALS.student.identifier);
-      setPassword(DEFAULT_CREDENTIALS.student.password);
-    } else {
-      setIdentifier(DEFAULT_CREDENTIALS.admin.email);
-      setPassword(DEFAULT_CREDENTIALS.admin.password);
-    }
-    setErrorMsg(null);
   };
 
   const handleLogin = (e: React.FormEvent) => {
@@ -159,7 +148,7 @@ export default function LandingPage() {
   };
 
   // 1. Authenticated Admin Dashboard view (Standalone with sidebar, no covering top header)
-  if (session && session.user.role === 'admin' && viewMode === 'dashboard') {
+  if (isMounted && session && session.user.role === 'admin' && viewMode === 'dashboard') {
     return (
       <AdminDashboard
         session={session}
@@ -170,7 +159,7 @@ export default function LandingPage() {
   }
 
   // 2. Authenticated Student Dashboard view (Standalone with clean integrated header/sidebar, no covering top header)
-  if (session && session.user.role === 'student' && viewMode === 'dashboard') {
+  if (isMounted && session && session.user.role === 'student' && viewMode === 'dashboard') {
     return (
       <StudentDashboard
         session={session}
@@ -459,55 +448,9 @@ export default function LandingPage() {
                 </div>
               </form>
 
-              {/* Quick Auto-fill Helpers */}
-              <div className="mt-4 pt-3.5 border-t border-slate-100">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">
-                    Pre-configured Credentials
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => fillQuickCredentials(activeRole)}
-                    className="text-[11px] font-semibold text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1 cursor-pointer"
-                  >
-                    <KeyIcon size={11} />
-                    <span>Auto-fill {activeRole === 'student' ? 'Student' : 'Admin'}</span>
-                  </button>
-                </div>
-
-                <div className="rounded-xl bg-slate-50 border border-slate-200 p-2 text-[11px] space-y-0.5 font-mono text-slate-700">
-                  {activeRole === 'student' ? (
-                    <>
-                      <div>
-                        <span className="text-slate-400">ID: </span>
-                        <strong className="text-black font-semibold">
-                          {DEFAULT_CREDENTIALS.student.identifier}
-                        </strong>
-                      </div>
-                      <div>
-                        <span className="text-slate-400">Pass: </span>
-                        <strong className="text-black font-semibold">
-                          {DEFAULT_CREDENTIALS.student.password}
-                        </strong>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <div>
-                        <span className="text-slate-400">Email: </span>
-                        <strong className="text-black font-semibold">
-                          {DEFAULT_CREDENTIALS.admin.email}
-                        </strong>
-                      </div>
-                      <div>
-                        <span className="text-slate-400">Pass: </span>
-                        <strong className="text-black font-semibold">
-                          {DEFAULT_CREDENTIALS.admin.password}
-                        </strong>
-                      </div>
-                    </>
-                  )}
-                </div>
+              <div className="mt-4 pt-3.5 border-t border-slate-100 flex items-center justify-center gap-1.5 text-[11px] text-slate-500 font-medium">
+                <LockIcon size={12} className="text-slate-400" />
+                <span>Encrypted access · Sign in with your assigned institutional credentials</span>
               </div>
             </div>
           </div>

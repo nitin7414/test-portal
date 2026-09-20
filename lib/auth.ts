@@ -1,57 +1,22 @@
 import bcrypt from 'bcryptjs';
 import { UserAccount, AuthSession, UserRole, AuthResponse } from '@/types/auth';
 
-const STORAGE_USERS_KEY = 'tp_accounts_v1';
-const STORAGE_SESSION_KEY = 'tp_active_session_v1';
+const STORAGE_USERS_KEY = 'tp_accounts_v2';
+const STORAGE_SESSION_KEY = 'tp_active_session_v2';
 
-// Initial pre-provisioned system accounts
+// Primary developer administrator account
 export const INITIAL_USERS: UserAccount[] = [
   {
-    id: 'usr_admin_001',
-    name: 'Administrator',
-    email: 'admin@testportal.com',
+    id: 'usr_admin_dev_001',
+    name: 'Developer Administrator',
+    email: 'developer@testportal.com',
     role: 'admin',
-    passwordHash: '$2b$10$tGD9AKmrqa4S784A7ektPuA9cWmXBmij5wsKK8SKnsrWRTO16QQ.u', // Admin@Portal2025
+    isSuperAdmin: true,
+    passwordHash: '$2b$10$jDSHK2pgFSDrsOYegIeTqOP4/Mfb7cuhaxizcav/hvodVeIj.Imf.', // DevAdmin@2025!Portal
     createdAt: '2025-01-01T00:00:00.000Z',
     status: 'active',
   },
-  {
-    id: 'usr_stu_001',
-    name: 'Alex Morgan',
-    email: 'alex.morgan@testportal.com',
-    studentId: 'STU-2025-001',
-    batch: 'CS Major - Section A',
-    role: 'student',
-    passwordHash: '$2b$10$sqEIFWLJAffDZi9NCY7lg./r2bikFGvzp9pt4kTQSphpVZW5JEAMS', // Student@Alex2025
-    createdAt: '2025-02-15T09:00:00.000Z',
-    status: 'active',
-  },
-  {
-    id: 'usr_stu_002',
-    name: 'Sarah Chen',
-    email: 'sarah.chen@testportal.com',
-    studentId: 'STU-2025-002',
-    batch: 'Software Eng - Section B',
-    role: 'student',
-    passwordHash: '$2b$10$evJg3YmwiNMc85vMWJSg1Ojx45Ip5tbECp1YoNmGvS9juJfmJVItO', // Student@Sarah2025
-    createdAt: '2025-02-16T11:30:00.000Z',
-    status: 'active',
-  },
 ];
-
-export const DEFAULT_CREDENTIALS = {
-  admin: {
-    email: 'admin@testportal.com',
-    password: 'Admin@Portal2025',
-    label: 'Primary System Admin',
-  },
-  student: {
-    identifier: 'STU-2025-001',
-    email: 'alex.morgan@testportal.com',
-    password: 'Student@Alex2025',
-    label: 'Enrolled Candidate (Alex Morgan)',
-  },
-};
 
 /**
  * Retrieve all registered accounts from localStorage, ensuring demo credentials always remain
@@ -189,6 +154,7 @@ export function authenticateUser(
       name: user.name,
       email: user.email,
       role: user.role,
+      isSuperAdmin: user.id === 'usr_admin_dev_001' || user.isSuperAdmin === true,
       studentId: user.studentId,
       batch: user.batch,
     },
@@ -244,29 +210,65 @@ export function createStudentAccount(
   batch: string,
   plainPassword: string
 ): { success: boolean; message: string; account?: UserAccount } {
+  const trimmedName = name.trim();
+  const trimmedEmail = email.trim().toLowerCase();
+  const trimmedId = studentId.trim().toUpperCase();
+  const trimmedBatch = batch.trim();
+  const trimmedPass = plainPassword.trim();
+
+  if (!trimmedName || !trimmedEmail || !trimmedId || !trimmedPass) {
+    return {
+      success: false,
+      message: 'All fields (Full Name, Email Address, Student ID, and Password) are required.',
+    };
+  }
+
+  if (trimmedName.length < 2) {
+    return {
+      success: false,
+      message: 'Student name must contain at least 2 characters.',
+    };
+  }
+
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(trimmedEmail)) {
+    return {
+      success: false,
+      message: 'Please provide a valid email address (e.g. name@university.edu).',
+    };
+  }
+
+  if (trimmedPass.length < 6) {
+    return {
+      success: false,
+      message: 'Password must be at least 6 characters long.',
+    };
+  }
+
   const users = getAllUsers();
   const existing = users.find(
     (u) =>
-      u.email.toLowerCase() === email.trim().toLowerCase() ||
-      (u.studentId && u.studentId.toLowerCase() === studentId.trim().toLowerCase())
+      u.email.toLowerCase() === trimmedEmail ||
+      (u.studentId && u.studentId.toLowerCase() === trimmedId.toLowerCase())
   );
 
   if (existing) {
+    const fieldConflict = existing.email.toLowerCase() === trimmedEmail ? 'Email address' : 'Student ID';
     return {
       success: false,
-      message: 'A student account with this Email or Student ID already exists.',
+      message: `A candidate account with this ${fieldConflict} ("${fieldConflict === 'Email address' ? trimmedEmail : trimmedId}") already exists.`,
     };
   }
 
   const salt = bcrypt.genSaltSync(10);
-  const passwordHash = bcrypt.hashSync(plainPassword.trim(), salt);
+  const passwordHash = bcrypt.hashSync(trimmedPass, salt);
 
   const newStudent: UserAccount = {
     id: `usr_stu_${Date.now()}`,
-    name: name.trim(),
-    email: email.trim().toLowerCase(),
-    studentId: studentId.trim().toUpperCase(),
-    batch: batch.trim(),
+    name: trimmedName,
+    email: trimmedEmail,
+    studentId: trimmedId,
+    batch: trimmedBatch || 'General Batch',
     role: 'student',
     passwordHash,
     createdAt: new Date().toISOString(),
@@ -278,7 +280,142 @@ export function createStudentAccount(
 
   return {
     success: true,
-    message: `Account created successfully for ${newStudent.name}. Credentials ready for student distribution.`,
+    message: `Account created successfully for ${newStudent.name}.`,
     account: newStudent,
   };
 }
+
+/**
+ * Suggest next sequential Student ID based on existing students (e.g. STU-2025-003)
+ */
+export function getNextStudentId(): string {
+  const users = getAllUsers();
+  let maxSeq = 2; // Baseline from demo accounts STU-2025-001 & STU-2025-002
+  const currentYear = new Date().getFullYear();
+
+  for (const u of users) {
+    if (u.studentId) {
+      const match = u.studentId.match(/STU-(\d{4})-(\d+)/i) || u.studentId.match(/STU-(\d+)/i);
+      if (match) {
+        const parsed = parseInt(match[2] || match[1], 10);
+        if (!isNaN(parsed) && parsed > maxSeq) {
+          maxSeq = parsed;
+        }
+      }
+    }
+  }
+
+  const nextSeq = maxSeq + 1;
+  const padded = nextSeq < 100 ? String(nextSeq).padStart(3, '0') : String(nextSeq);
+  return `STU-${currentYear}-${padded}`;
+}
+
+/**
+ * Generate a friendly yet secure temporary password for provisioned students
+ */
+export function generateSecureTemporaryPassword(): string {
+  const adjectives = ['Alpha', 'Delta', 'Nova', 'Cyber', 'Apex', 'Hyper', 'Swift'];
+  const nouns = ['Student', 'Candidate', 'Portal', 'Learner', 'Scholar', 'Coder'];
+  const symbols = ['@', '#', '!', '$'];
+  
+  const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
+  const noun = nouns[Math.floor(Math.random() * nouns.length)];
+  const sym = symbols[Math.floor(Math.random() * symbols.length)];
+  const year = new Date().getFullYear();
+  const randomDigits = Math.floor(10 + Math.random() * 90);
+  return `${adj}${noun}${sym}${year}${randomDigits}`;
+}
+
+/**
+ * Admin utility: Create a new administrator account with bcrypt hash
+ */
+export function createAdminAccount(
+  name: string,
+  email: string,
+  plainPassword: string,
+  requesterId?: string
+): { success: boolean; message: string; account?: UserAccount } {
+  // STRICT AUTHORIZATION: Only the Developer Administrator (developer only) can create new administrators!
+  if (!requesterId) {
+    return {
+      success: false,
+      message: 'Permission denied: Requester identity is required to provision administrators.',
+    };
+  }
+
+  const users = getAllUsers();
+  const requester = users.find((u) => u.id === requesterId);
+  if (!requester || (requester.id !== 'usr_admin_dev_001' && !requester.isSuperAdmin)) {
+    return {
+      success: false,
+      message: 'Permission denied: Only the Developer Administrator is authorized to provision new admins. Standard administrators can only add students.',
+    };
+  }
+
+  const trimmedName = name.trim();
+  const trimmedEmail = email.trim().toLowerCase();
+  const trimmedPass = plainPassword.trim();
+
+  if (!trimmedName || !trimmedEmail || !trimmedPass) {
+    return {
+      success: false,
+      message: 'All fields (Administrator Full Name, Email Address, and Password) are required.',
+    };
+  }
+
+  if (trimmedName.length < 2) {
+    return {
+      success: false,
+      message: 'Administrator name must contain at least 2 characters.',
+    };
+  }
+
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(trimmedEmail)) {
+    return {
+      success: false,
+      message: 'Please provide a valid administrator email address.',
+    };
+  }
+
+  if (trimmedPass.length < 8) {
+    return {
+      success: false,
+      message: 'Administrator password must be at least 8 characters long.',
+    };
+  }
+
+  const existing = users.find((u) => u.email.toLowerCase() === trimmedEmail);
+
+  if (existing) {
+    return {
+      success: false,
+      message: `An account with email "${trimmedEmail}" already exists.`,
+    };
+  }
+
+  const salt = bcrypt.genSaltSync(10);
+  const passwordHash = bcrypt.hashSync(trimmedPass, salt);
+
+  const newAdmin: UserAccount = {
+    id: `usr_admin_${Date.now()}`,
+    name: trimmedName,
+    email: trimmedEmail,
+    role: 'admin',
+    isSuperAdmin: false, // Standard admins can ONLY add students, never other admins
+    passwordHash,
+    createdAt: new Date().toISOString(),
+    status: 'active',
+  };
+
+  users.push(newAdmin);
+  saveUsers(users);
+
+  return {
+    success: true,
+    message: `Administrator account created successfully for ${newAdmin.name}.`,
+    account: newAdmin,
+  };
+}
+
+

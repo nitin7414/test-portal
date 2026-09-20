@@ -3,17 +3,18 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { AuthSession, UserAccount } from '@/types/auth';
 import { TestMetadata } from '@/types/exam';
-import { getAllUsers, createStudentAccount } from '@/lib/auth';
+import { getAllUsers, createStudentAccount, createAdminAccount, getNextStudentId, generateSecureTemporaryPassword } from '@/lib/auth';
 import {
   getAllTests, cycleTestStatus, updateTestDuration, resetTestConfigs,
-  toggleStudentStatus, deleteStudent, clearStudentResults, fullDemoReset, getPortalStats, PortalStats,
+  toggleStudentStatus, deleteStudent, toggleAdminStatus, deleteAdmin, clearStudentResults, fullDemoReset, getPortalStats, PortalStats,
   updateTestScheduleAndAccess, formatScheduledDateTime, TestSchedulePayload,
 } from '@/lib/admin-utils';
 import {
   UsersIcon, BookOpenIcon, BarChartIcon, SettingsIcon, PlusIcon, TrashIcon,
   SearchIcon, RefreshIcon, DatabaseIcon, AlertTriangleIcon, XIcon, CheckCircleIcon,
   ClockIcon, ZapIcon, AwardIcon, ShieldIcon, LogOutIcon, ArrowRightIcon, ChevronRightIcon,
-  MenuIcon, CalendarIcon, UploadIcon,
+  MenuIcon, CalendarIcon, UploadIcon, EyeIcon, EyeOffIcon, CopyIcon, CheckIcon, KeyIcon,
+  MailIcon, UserIcon, SparklesIcon,
 } from '@/components/ui/Icons';
 import { GenerateTestView } from '@/components/dashboard/GenerateTestView';
 
@@ -23,7 +24,7 @@ interface AdminDashboardProps {
   onSwitchToLanding?: () => void;
 }
 
-type Tab = 'overview' | 'students' | 'tests' | 'generate' | 'settings';
+type Tab = 'overview' | 'students' | 'admins' | 'tests' | 'generate' | 'settings';
 
 const STATUS_COLORS: Record<string, string> = {
   active:    'bg-emerald-100 text-emerald-800 border-emerald-200',
@@ -33,13 +34,17 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogout, onSwitchToLanding }) => {
+  const isSuperAdmin = session.user.id === 'usr_admin_dev_001' || session.user.isSuperAdmin === true;
   const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [students, setStudents] = useState<UserAccount[]>([]);
+  const [admins, setAdmins] = useState<UserAccount[]>([]);
   const [tests, setTests] = useState<TestMetadata[]>([]);
   const [stats, setStats] = useState<PortalStats | null>(null);
   const [isLoaded, setIsLoaded] = useState(false);
   const [studentSearch, setStudentSearch] = useState('');
+  const [adminSearch, setAdminSearch] = useState('');
   const [showAddStudent, setShowAddStudent] = useState(false);
+  const [showAddAdmin, setShowAddAdmin] = useState(false);
   const [editingDuration, setEditingDuration] = useState<Record<string, string>>({});
   const [resetConfirm, setResetConfirm] = useState<string | null>(null);
   const [toast, setToast] = useState<{ msg: string; type: 'success' | 'error' } | null>(null);
@@ -52,7 +57,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
   };
 
   const refresh = useCallback(() => {
-    setStudents(getAllUsers().filter((u) => u.role === 'student'));
+    const allUsers = getAllUsers();
+    setStudents(allUsers.filter((u) => u.role === 'student'));
+    setAdmins(allUsers.filter((u) => u.role === 'admin'));
     setTests(getAllTests());
     setStats(getPortalStats());
   }, []);
@@ -85,6 +92,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
     (s.studentId && s.studentId.toLowerCase().includes(studentSearch.toLowerCase()))
   );
 
+  const filteredAdmins = admins.filter((a) =>
+    a.name.toLowerCase().includes(adminSearch.toLowerCase()) ||
+    a.email.toLowerCase().includes(adminSearch.toLowerCase())
+  );
+
   const handleToggleStatus = (userId: string) => {
     setStudents(toggleStudentStatus(userId).filter((u) => u.role === 'student'));
     setStats(getPortalStats());
@@ -96,6 +108,25 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
     setStudents(deleteStudent(userId).filter((u) => u.role === 'student'));
     setStats(getPortalStats());
     showToast('Student account deleted.');
+  };
+
+  const handleToggleAdminStatus = (adminId: string) => {
+    if (adminId === 'usr_admin_dev_001') {
+      showToast('Primary developer administrator account cannot be suspended.', 'error');
+      return;
+    }
+    setAdmins(toggleAdminStatus(adminId).filter((u) => u.role === 'admin'));
+    showToast('Administrator status updated.');
+  };
+
+  const handleDeleteAdmin = (adminId: string, name: string) => {
+    if (adminId === 'usr_admin_dev_001') {
+      showToast('Primary developer administrator account cannot be deleted.', 'error');
+      return;
+    }
+    if (!confirm(`Permanently remove administrator privileges for "${name}"? They will no longer have access to the Admin Console.`)) return;
+    setAdmins(deleteAdmin(adminId).filter((u) => u.role === 'admin'));
+    showToast('Administrator account removed.');
   };
 
   const handleClearStudentHistory = (id: string, name: string) => {
@@ -141,6 +172,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
   const TABS: { id: Tab; label: string; mobileLabel?: string; icon: React.ReactNode }[] = [
     { id: 'overview', label: 'Overview', mobileLabel: 'Overview', icon: <BarChartIcon size={16} /> },
     { id: 'students', label: 'Students', mobileLabel: 'Students', icon: <UsersIcon size={16} /> },
+    ...(isSuperAdmin ? [{ id: 'admins' as Tab, label: 'Admins', mobileLabel: 'Admins', icon: <ShieldIcon size={16} /> }] : []),
     { id: 'tests',    label: 'Tests',    mobileLabel: 'Tests',    icon: <BookOpenIcon size={16} /> },
     { id: 'generate', label: 'Generate new test', mobileLabel: 'Generate', icon: <UploadIcon size={16} /> },
     { id: 'settings', label: 'Settings', mobileLabel: 'Settings', icon: <SettingsIcon size={16} /> },
@@ -166,7 +198,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
               {session.user.name.charAt(0)}
             </div>
             <div className="min-w-0">
-              <p className="text-sm font-semibold text-white truncate">{session.user.name}</p>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <p className="text-sm font-semibold text-white truncate">{session.user.name}</p>
+                {isSuperAdmin && (
+                  <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-indigo-500/20 border border-indigo-500/30 text-indigo-300">
+                    Dev Root
+                  </span>
+                )}
+              </div>
               <p className="text-[11px] text-slate-400 truncate">{session.user.email}</p>
             </div>
           </div>
@@ -391,17 +430,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
               {/* Quick actions */}
               <div>
                 <h2 className="text-sm font-bold uppercase tracking-wider text-slate-400 mb-3">Quick Actions</h2>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className={`grid grid-cols-1 sm:grid-cols-2 ${isSuperAdmin ? 'lg:grid-cols-4' : 'lg:grid-cols-3'} gap-3`}>
                   {[
-                    { icon: <UsersIcon size={18} />,   label: 'Add Student',   sub: 'Provision new account',    color: 'indigo',  onClick: () => { setActiveTab('students'); setShowAddStudent(true); } },
-                    { icon: <BookOpenIcon size={18} />, label: 'Manage Tests',  sub: 'Configure test settings',  color: 'emerald', onClick: () => setActiveTab('tests') },
-                    { icon: <RefreshIcon size={18} />,  label: 'System Reset',  sub: 'Wipe sessions & restore',  color: 'amber',   onClick: () => setActiveTab('settings') },
+                    { icon: <UsersIcon size={18} />,   label: 'Add Student',   sub: 'Provision candidate account', color: 'indigo',  onClick: () => { setActiveTab('students'); setShowAddStudent(true); } },
+                    ...(isSuperAdmin ? [
+                      { icon: <ShieldIcon size={18} />,  label: 'Add Admin',     sub: 'Developer Root Only',         color: 'violet',  onClick: () => { setActiveTab('admins'); setShowAddAdmin(true); } },
+                    ] : []),
+                    { icon: <BookOpenIcon size={18} />, label: 'Manage Tests',  sub: 'Configure test settings',     color: 'emerald', onClick: () => setActiveTab('tests') },
+                    { icon: <RefreshIcon size={18} />,  label: 'System Reset',  sub: 'Wipe sessions & restore',     color: 'amber',   onClick: () => setActiveTab('settings') },
                   ].map((qa) => (
                     <button
                       key={qa.label}
                       onClick={qa.onClick}
                       className={`group flex items-center gap-4 p-4 rounded-2xl border text-left transition-all cursor-pointer ${
                         qa.color === 'indigo'  ? 'bg-indigo-600/20 border-indigo-500/30 text-indigo-400 hover:bg-indigo-600/40' :
+                        qa.color === 'violet'  ? 'bg-violet-600/20 border-violet-500/30 text-violet-400 hover:bg-violet-600/40' :
                         qa.color === 'emerald' ? 'bg-emerald-600/20 border-emerald-500/30 text-emerald-400 hover:bg-emerald-600/40' :
                                                  'bg-amber-600/20 border-amber-500/30 text-amber-400 hover:bg-amber-600/40'
                       }`}
@@ -524,6 +567,113 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
                 ))}
               </div>
             </div>
+          )}
+
+          {/* ADMINS TAB */}
+          {activeTab === 'admins' && (
+            isSuperAdmin ? (
+              <div className={`p-6 lg:p-8 space-y-6 transition-all duration-500 ${isLoaded ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <h2 className="text-2xl font-black text-white tracking-tight">Administrator Management</h2>
+                    <p className="text-sm text-slate-400 mt-0.5">Provision and manage administrator credentials with platform control</p>
+                  </div>
+                  <button
+                    onClick={() => setShowAddAdmin(true)}
+                    className="flex items-center gap-2 bg-violet-600 hover:bg-violet-500 text-white font-bold text-sm px-4 py-2.5 rounded-xl shadow-lg shadow-violet-900/30 transition-all cursor-pointer"
+                  >
+                    <PlusIcon size={15} />
+                    Add Administrator
+                  </button>
+                </div>
+
+                <div className="relative">
+                  <SearchIcon size={15} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500 pointer-events-none" />
+                  <input
+                    type="text"
+                    placeholder="Search administrators by name or email..."
+                    value={adminSearch}
+                    onChange={(e) => setAdminSearch(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500/30 transition-all"
+                  />
+                </div>
+
+                <div className="space-y-3">
+                  {filteredAdmins.length === 0 && (
+                    <div className="text-center py-12 bg-slate-900 rounded-2xl border border-slate-800">
+                      <ShieldIcon size={36} className="mx-auto text-slate-600 mb-3" />
+                      <p className="text-slate-400 font-semibold">No administrators found</p>
+                    </div>
+                  )}
+                  {filteredAdmins.map((a) => (
+                    <div key={a.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:border-slate-700 transition-colors">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-indigo-600 font-bold text-sm shrink-0">
+                          {a.name.charAt(0)}
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="text-sm font-bold text-white">{a.name}</p>
+                            {a.id === 'usr_admin_dev_001' && (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                                Developer Root
+                              </span>
+                            )}
+                            <span className={`text-[10px] font-bold border px-2 py-0.5 rounded-full capitalize ${STATUS_COLORS[a.status]}`}>
+                              {a.status}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-400 truncate">{a.email}</p>
+                          <p className="text-[11px] font-mono text-slate-500">
+                            Joined {new Date(a.createdAt).toLocaleDateString()}
+                          </p>
+                        </div>
+                      </div>
+                      {a.id !== 'usr_admin_dev_001' ? (
+                        <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                          <button
+                            onClick={() => handleToggleAdminStatus(a.id)}
+                            className={`text-xs font-bold px-3 py-1.5 rounded-lg border transition-all cursor-pointer ${
+                              a.status === 'active'
+                                ? 'bg-rose-950 border-rose-700 text-rose-400 hover:bg-rose-900'
+                                : 'bg-emerald-950 border-emerald-700 text-emerald-400 hover:bg-emerald-900'
+                            }`}
+                          >
+                            {a.status === 'active' ? 'Suspend' : 'Activate'}
+                          </button>
+                          <button
+                            onClick={() => handleDeleteAdmin(a.id, a.name)}
+                            className="text-xs font-bold bg-slate-800 border border-slate-700 text-slate-400 hover:text-rose-400 hover:border-rose-700 px-2.5 py-1.5 rounded-lg transition-all cursor-pointer"
+                          >
+                            <TrashIcon size={13} />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="text-[11px] font-medium text-slate-500 italic px-2 py-1 bg-slate-800/50 rounded-lg border border-slate-800">
+                          Protected Root Admin
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="p-8 max-w-lg mx-auto text-center py-20 space-y-4">
+                <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-amber-500/20 border border-amber-500/30 text-amber-400 mx-auto">
+                  <ShieldIcon size={32} />
+                </div>
+                <h3 className="text-xl font-black text-white">Developer Administrator Access Only</h3>
+                <p className="text-sm text-slate-400 leading-relaxed">
+                  Only the primary Developer Administrator is authorized to provision or manage platform administrators. Standard administrators can manage tests and enroll students.
+                </p>
+                <button
+                  onClick={() => setActiveTab('overview')}
+                  className="px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm transition-all cursor-pointer inline-flex items-center gap-2"
+                >
+                  Return to Overview
+                </button>
+              </div>
+            )
           )}
 
           {/* TESTS TAB */}
@@ -761,33 +911,37 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
               </div>
 
               <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
-                <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">Default Credentials Reference</h3>
+                <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">Platform Access & Role Architecture</h3>
                 <div className="space-y-3">
-                  {[
-                    { role: 'Admin',           email: 'admin@testportal.com',       pass: 'Admin@Portal2025' },
-                    { role: 'Student — Alex',  email: 'alex.morgan@testportal.com', pass: 'Student@Alex2025',  id: 'STU-2025-001' },
-                    { role: 'Student — Sarah', email: 'sarah.chen@testportal.com',  pass: 'Student@Sarah2025', id: 'STU-2025-002' },
-                  ].map((c) => (
-                    <div key={c.email} className="bg-slate-800/60 rounded-xl p-4 space-y-2">
-                      <p className="text-xs font-bold text-indigo-400 uppercase tracking-wider">{c.role}</p>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        {c.id && (
-                          <div>
-                            <p className="text-[10px] text-slate-500 font-medium">Student ID</p>
-                            <p className="text-xs font-mono font-bold text-slate-300 mt-0.5">{c.id}</p>
-                          </div>
-                        )}
-                        <div>
-                          <p className="text-[10px] text-slate-500 font-medium">Email</p>
-                          <p className="text-xs font-mono font-bold text-slate-300 mt-0.5">{c.email}</p>
-                        </div>
-                        <div>
-                          <p className="text-[10px] text-slate-500 font-medium">Password</p>
-                          <p className="text-xs font-mono font-bold text-slate-300 mt-0.5">{c.pass}</p>
-                        </div>
-                      </div>
+                  <div className="bg-slate-800/60 rounded-xl p-4 space-y-2 border border-indigo-500/20">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-bold text-indigo-400 uppercase tracking-wider">Developer Administrator (Root)</p>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">Sole Provisioner</span>
                     </div>
-                  ))}
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      Exclusive developer account with master privileges. <strong>Only the developer admin can provision or manage new administrators.</strong> Also retains full rights to add students and configure tests.
+                    </p>
+                  </div>
+
+                  <div className="bg-slate-800/60 rounded-xl p-4 space-y-2 border border-slate-700/60">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-bold text-violet-400 uppercase tracking-wider">Standard Administrators</p>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-700 text-slate-300">Staff / Faculty</span>
+                    </div>
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      Provisioned administrators can manage exams, schedule tests, review candidate proctoring logs, and <strong>enroll students only</strong>. Standard admins cannot provision or manage other administrators.
+                    </p>
+                  </div>
+
+                  <div className="bg-slate-800/60 rounded-xl p-4 space-y-2 border border-slate-700/60">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-bold text-emerald-400 uppercase tracking-wider">Students (Candidates)</p>
+                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-slate-700 text-slate-300">Examinees</span>
+                    </div>
+                    <p className="text-xs text-slate-300 leading-relaxed">
+                      Provisioned student accounts can access candidate dashboard, sit for scheduled or assigned assessments, and review past test scores.
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -799,7 +953,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
       {showAddStudent && (
         <AddStudentModal
           onClose={() => setShowAddStudent(false)}
-          onSuccess={(msg) => { refresh(); showToast(msg); setShowAddStudent(false); }}
+          onSuccess={(msg) => { refresh(); showToast(msg); }}
+          onError={(msg) => showToast(msg, 'error')}
+        />
+      )}
+
+      {/* ADD ADMIN MODAL (DEVELOPER ROOT ONLY) */}
+      {showAddAdmin && isSuperAdmin && (
+        <AddAdminModal
+          requesterId={session.user.id}
+          onClose={() => setShowAddAdmin(false)}
+          onSuccess={(msg) => { refresh(); showToast(msg); }}
           onError={(msg) => showToast(msg, 'error')}
         />
       )}
@@ -832,71 +996,862 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
 /* ======================================================
    ADD STUDENT MODAL
    ====================================================== */
+const PRESET_BATCHES = [
+  '2025 Computer Science',
+  'Software Eng - Section B',
+  'Information Technology',
+  'Data Science & AI',
+];
+
+interface CreatedStudentData {
+  name: string;
+  email: string;
+  studentId: string;
+  batch: string;
+  password: string;
+}
+
 const AddStudentModal: React.FC<{
   onClose: () => void;
   onSuccess: (msg: string) => void;
   onError: (msg: string) => void;
 }> = ({ onClose, onSuccess, onError }) => {
   const [form, setForm] = useState({
-    name: '', email: '', studentId: '', batch: '2025 Computer Science', password: '',
+    name: '',
+    email: '',
+    studentId: '',
+    batch: '2025 Computer Science',
+    password: '',
   });
-  const [isLoading, setIsLoading] = useState(false);
 
-  const handle = (e: React.FormEvent) => {
+  const [showPassword, setShowPassword] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const [createdStudent, setCreatedStudent] = useState<CreatedStudentData | null>(null);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  // Initialize auto-generated ID & temporary password on mount
+  useEffect(() => {
+    setForm((prev) => ({
+      ...prev,
+      studentId: prev.studentId || getNextStudentId(),
+      password: prev.password || generateSecureTemporaryPassword(),
+    }));
+  }, []);
+
+  const handleRegenerateId = () => {
+    setForm((prev) => ({ ...prev, studentId: getNextStudentId() }));
+  };
+
+  const handleRegeneratePassword = () => {
+    setForm((prev) => ({ ...prev, password: generateSecureTemporaryPassword() }));
+  };
+
+  const copyToClipboard = (text: string, key: string) => {
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(text);
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey(null), 2200);
+    }
+  };
+
+  const handleCopyFullPackage = () => {
+    if (!createdStudent) return;
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    const formatted = [
+      '==================================================',
+      'TEST PORTAL — OFFICIAL CANDIDATE ACCESS CREDENTIALS',
+      '==================================================',
+      `Candidate Name  : ${createdStudent.name}`,
+      `Student ID      : ${createdStudent.studentId}`,
+      `Email Address   : ${createdStudent.email}`,
+      `Academic Batch  : ${createdStudent.batch}`,
+      `Access Password : ${createdStudent.password}`,
+      `Portal Address  : ${origin}`,
+      '--------------------------------------------------',
+      'Instructions: Navigate to the portal URL, choose Student role,',
+      'and sign in with either your Student ID or Email and password.',
+      '==================================================',
+    ].join('\n');
+
+    copyToClipboard(formatted, 'package');
+  };
+
+  const handleResetForAnother = () => {
+    setCreatedStudent(null);
+    setValidationError(null);
+    setShowPassword(false);
+    setForm({
+      name: '',
+      email: '',
+      studentId: getNextStudentId(),
+      batch: '2025 Computer Science',
+      password: generateSecureTemporaryPassword(),
+    });
+  };
+
+  const handleCreate = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!form.name || !form.email || !form.studentId || !form.password) {
-      onError('Please fill all required fields.');
+    setValidationError(null);
+
+    const name = form.name.trim();
+    const email = form.email.trim();
+    const studentId = form.studentId.trim();
+    const password = form.password.trim();
+
+    if (!name || !email || !studentId || !password) {
+      setValidationError('Please fill in all candidate credential fields.');
       return;
     }
+
+    if (name.length < 2) {
+      setValidationError('Candidate name must be at least 2 characters long.');
+      return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      setValidationError('Please enter a valid email address (e.g. name@university.edu).');
+      return;
+    }
+
+    if (password.length < 6) {
+      setValidationError('Password must be at least 6 characters long.');
+      return;
+    }
+
     setIsLoading(true);
     setTimeout(() => {
-      const res = createStudentAccount(form.name, form.email, form.studentId, form.batch, form.password);
+      const res = createStudentAccount(name, email, studentId, form.batch, password);
       setIsLoading(false);
-      if (res.success) onSuccess(res.message);
-      else onError(res.message);
-    }, 400);
+
+      if (res.success && res.account) {
+        onSuccess(res.message);
+        setCreatedStudent({
+          name: res.account.name,
+          email: res.account.email,
+          studentId: res.account.studentId || studentId.toUpperCase(),
+          batch: res.account.batch || form.batch,
+          password: password,
+        });
+      } else {
+        setValidationError(res.message);
+        onError(res.message);
+      }
+    }, 350);
   };
 
   return (
     <div className="fixed inset-0 z-[9998] flex items-center justify-center p-4" data-lenis-prevent="true">
-      <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-slate-900 border border-slate-700 rounded-3xl p-7 w-full max-w-md shadow-2xl">
-        <div className="flex items-center justify-between mb-6">
-          <div>
-            <h3 className="text-lg font-black text-white">Add Student</h3>
-            <p className="text-xs text-slate-400 mt-0.5">Provision a new candidate account with bcrypt hashing</p>
+      <div className="absolute inset-0 bg-black/75 backdrop-blur-sm" onClick={onClose} />
+      
+      <div className="relative bg-slate-900 border border-slate-700 rounded-3xl p-6 sm:p-7 w-full max-w-lg shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">
+        {/* MODAL HEADER */}
+        <div className="flex items-center justify-between pb-4 border-b border-slate-800 mb-5 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-indigo-600/20 border border-indigo-500/30 text-indigo-400 font-bold">
+              <UserIcon size={20} />
+            </div>
+            <div>
+              <h3 className="text-lg font-black text-white">
+                {createdStudent ? 'Student Account Ready' : 'Add Student'}
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {createdStudent ? 'Account provisioned and active' : 'Provision student account with bcrypt encryption'}
+              </p>
+            </div>
           </div>
-          <button onClick={onClose} className="text-slate-500 hover:text-white transition-colors cursor-pointer">
+          <button
+            onClick={onClose}
+            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+            aria-label="Close modal"
+          >
             <XIcon size={20} />
           </button>
         </div>
-        <form onSubmit={handle} className="space-y-4">
-          {[
-            { label: 'Full Name',       key: 'name',      type: 'text',     ph: 'e.g. John Smith' },
-            { label: 'Email Address',   key: 'email',     type: 'email',    ph: 'john.smith@testportal.com' },
-            { label: 'Student ID',      key: 'studentId', type: 'text',     ph: 'STU-2025-003' },
-            { label: 'Batch / Section', key: 'batch',     type: 'text',     ph: '2025 Computer Science' },
-            { label: 'Password',        key: 'password',  type: 'password', ph: 'Minimum 8 characters' },
-          ].map((f) => (
-            <div key={f.key}>
-              <label className="text-xs font-bold text-slate-400 uppercase tracking-wider block mb-1.5">{f.label}</label>
-              <input
-                type={f.type}
-                placeholder={f.ph}
-                value={form[f.key as keyof typeof form]}
-                onChange={(e) => setForm((prev) => ({ ...prev, [f.key]: e.target.value }))}
-                className="w-full bg-slate-800 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30 transition-all"
-              />
+
+        {/* BODY CONTENT */}
+        <div className="overflow-y-auto pr-1 space-y-4 flex-1">
+          {/* SUCCESS / CREDENTIAL HANDOVER STATE */}
+          {createdStudent ? (
+            <div className="space-y-5 py-1">
+              <div className="p-4 rounded-2xl bg-emerald-950/40 border border-emerald-500/30 flex items-start gap-3.5">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-emerald-500/20 text-emerald-400 shrink-0 mt-0.5">
+                  <CheckCircleIcon size={20} />
+                </div>
+                <div>
+                  <h4 className="text-sm font-black text-emerald-300">Candidate Account Provisioned Successfully</h4>
+                  <p className="text-xs text-emerald-400/90 mt-0.5 leading-relaxed">
+                    The student account for <strong className="text-white">{createdStudent.name}</strong> is active in the database and can immediately log in or be assigned to scheduled exams.
+                  </p>
+                </div>
+              </div>
+
+              {/* CREDENTIAL CARD */}
+              <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 space-y-3">
+                <div className="flex items-center justify-between border-b border-slate-700/60 pb-2.5">
+                  <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Account Credentials</span>
+                  <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">Active</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <span className="text-slate-400 block text-[11px] mb-0.5">Full Name</span>
+                    <span className="font-bold text-white text-sm">{createdStudent.name}</span>
+                  </div>
+
+                  <div>
+                    <span className="text-slate-400 block text-[11px] mb-0.5">Batch / Section</span>
+                    <span className="font-semibold text-slate-200">{createdStudent.batch}</span>
+                  </div>
+
+                  <div className="sm:col-span-2 flex items-center justify-between p-2.5 rounded-xl bg-slate-900 border border-slate-700">
+                    <div>
+                      <span className="text-slate-400 block text-[10px] uppercase font-bold tracking-wider">Student ID (Login Identifier)</span>
+                      <span className="font-mono font-bold text-indigo-400 text-sm">{createdStudent.studentId}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => copyToClipboard(createdStudent.studentId, 'id')}
+                      className="flex items-center gap-1 text-[11px] font-bold px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors cursor-pointer"
+                    >
+                      {copiedKey === 'id' ? <CheckIcon size={12} className="text-emerald-400" /> : <CopyIcon size={12} />}
+                      <span>{copiedKey === 'id' ? 'Copied' : 'Copy'}</span>
+                    </button>
+                  </div>
+
+                  <div className="sm:col-span-2 flex items-center justify-between p-2.5 rounded-xl bg-slate-900 border border-slate-700">
+                    <div>
+                      <span className="text-slate-400 block text-[10px] uppercase font-bold tracking-wider">Institutional Email</span>
+                      <span className="font-mono text-slate-200 text-xs truncate max-w-[220px] block">{createdStudent.email}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => copyToClipboard(createdStudent.email, 'email')}
+                      className="flex items-center gap-1 text-[11px] font-bold px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors cursor-pointer"
+                    >
+                      {copiedKey === 'email' ? <CheckIcon size={12} className="text-emerald-400" /> : <CopyIcon size={12} />}
+                      <span>{copiedKey === 'email' ? 'Copied' : 'Copy'}</span>
+                    </button>
+                  </div>
+
+                  <div className="sm:col-span-2 flex items-center justify-between p-2.5 rounded-xl bg-slate-900 border border-slate-700">
+                    <div>
+                      <span className="text-slate-400 block text-[10px] uppercase font-bold tracking-wider">Temporary Password</span>
+                      <span className="font-mono font-bold text-amber-400 text-sm">
+                        {showPassword ? createdStudent.password : '••••••••••••'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white border border-slate-700 transition-colors cursor-pointer"
+                        title={showPassword ? 'Hide password' : 'Show password'}
+                      >
+                        {showPassword ? <EyeOffIcon size={14} /> : <EyeIcon size={14} />}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(createdStudent.password, 'pass')}
+                        className="flex items-center gap-1 text-[11px] font-bold px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors cursor-pointer"
+                      >
+                        {copiedKey === 'pass' ? <CheckIcon size={12} className="text-emerald-400" /> : <CopyIcon size={12} />}
+                        <span>{copiedKey === 'pass' ? 'Copied' : 'Copy'}</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* ACTION BUTTONS */}
+              <div className="space-y-2 pt-1">
+                <button
+                  type="button"
+                  onClick={handleCopyFullPackage}
+                  className="w-full flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 rounded-xl shadow-lg shadow-indigo-900/30 transition-all cursor-pointer text-sm"
+                >
+                  {copiedKey === 'package' ? (
+                    <>
+                      <CheckIcon size={16} className="text-emerald-300" />
+                      <span>Copied Full Credential Package!</span>
+                    </>
+                  ) : (
+                    <>
+                      <CopyIcon size={16} />
+                      <span>Copy Full Credential Package</span>
+                    </>
+                  )}
+                </button>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={handleResetForAnother}
+                    className="flex items-center justify-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold py-2.5 rounded-xl transition-all cursor-pointer text-xs"
+                  >
+                    <PlusIcon size={14} />
+                    <span>Add Another</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 font-bold py-2.5 rounded-xl transition-all cursor-pointer text-xs"
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
             </div>
-          ))}
+          ) : (
+            /* ADD STUDENT FORM */
+            <form onSubmit={handleCreate} className="space-y-4">
+              {validationError && (
+                <div className="p-3 rounded-xl bg-rose-950/60 border border-rose-600/40 flex items-center gap-2.5 text-xs text-rose-300 font-medium">
+                  <AlertTriangleIcon size={16} className="text-rose-400 shrink-0" />
+                  <span>{validationError}</span>
+                </div>
+              )}
+
+              {/* Full Name */}
+              <div>
+                <label className="text-xs font-bold text-slate-300 uppercase tracking-wider block mb-1.5 flex items-center gap-1.5">
+                  <UserIcon size={13} className="text-indigo-400" />
+                  <span>Full Name</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Jordan Smith"
+                  value={form.name}
+                  onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
+                  className="w-full bg-slate-800/90 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30 transition-all"
+                  required
+                />
+              </div>
+
+              {/* Email Address */}
+              <div>
+                <label className="text-xs font-bold text-slate-300 uppercase tracking-wider block mb-1.5 flex items-center gap-1.5">
+                  <MailIcon size={13} className="text-indigo-400" />
+                  <span>Institutional Email Address</span>
+                </label>
+                <input
+                  type="email"
+                  placeholder="e.g. jordan.smith@testportal.com"
+                  value={form.email}
+                  onChange={(e) => setForm((prev) => ({ ...prev, email: e.target.value }))}
+                  className="w-full bg-slate-800/90 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30 transition-all"
+                  required
+                />
+              </div>
+
+              {/* Student ID & Auto-Generate */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
+                    <KeyIcon size={13} className="text-indigo-400" />
+                    <span>Student ID (Unique Identifier)</span>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleRegenerateId}
+                    className="text-[11px] font-bold text-indigo-400 hover:text-indigo-300 flex items-center gap-1 transition-colors cursor-pointer"
+                  >
+                    <RefreshIcon size={11} />
+                    <span>Auto-Generate</span>
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  placeholder="e.g. STU-2025-003"
+                  value={form.studentId}
+                  onChange={(e) => setForm((prev) => ({ ...prev, studentId: e.target.value }))}
+                  className="w-full bg-slate-800/90 border border-slate-700 rounded-xl px-4 py-2.5 text-sm font-mono text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30 transition-all uppercase"
+                  required
+                />
+                <p className="text-[11px] text-slate-500 mt-1">Candidates can use either this ID or their email to sign in.</p>
+              </div>
+
+              {/* Batch / Section */}
+              <div>
+                <label className="text-xs font-bold text-slate-300 uppercase tracking-wider block mb-1.5">
+                  Batch / Academic Section
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. 2025 Computer Science"
+                  value={form.batch}
+                  onChange={(e) => setForm((prev) => ({ ...prev, batch: e.target.value }))}
+                  className="w-full bg-slate-800/90 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30 transition-all"
+                  required
+                />
+                <div className="flex items-center gap-1.5 flex-wrap mt-2">
+                  <span className="text-[10px] font-bold uppercase text-slate-500">Quick:</span>
+                  {PRESET_BATCHES.map((b) => (
+                    <button
+                      key={b}
+                      type="button"
+                      onClick={() => setForm((prev) => ({ ...prev, batch: b }))}
+                      className={`text-[11px] font-medium px-2 py-0.5 rounded-lg border transition-all cursor-pointer ${
+                        form.batch === b
+                          ? 'bg-indigo-600/30 border-indigo-500 text-indigo-300 font-bold'
+                          : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white hover:border-slate-600'
+                      }`}
+                    >
+                      {b}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Temporary Password */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+                    Temporary / Initial Password
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleRegeneratePassword}
+                    className="text-[11px] font-bold text-amber-400 hover:text-amber-300 flex items-center gap-1 transition-colors cursor-pointer"
+                  >
+                    <SparklesIcon size={11} />
+                    <span>Generate Strong</span>
+                  </button>
+                </div>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="Minimum 6 characters"
+                    value={form.password}
+                    onChange={(e) => setForm((prev) => ({ ...prev, password: e.target.value }))}
+                    className="w-full bg-slate-800/90 border border-slate-700 rounded-xl pl-4 pr-11 py-2.5 text-sm font-mono text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30 transition-all"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition-colors cursor-pointer"
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showPassword ? <EyeOffIcon size={16} /> : <EyeIcon size={16} />}
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1">Password will be hashed using bcrypt (10 rounds) before storage.</p>
+              </div>
+
+              {/* SUBMIT BUTTON */}
+              <div className="pt-2 flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="w-1/3 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-3 rounded-xl border border-slate-700 transition-all cursor-pointer text-sm"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className="w-2/3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 text-white font-bold py-3 rounded-xl shadow-lg shadow-indigo-900/30 transition-all cursor-pointer text-sm flex items-center justify-center gap-2"
+                >
+                  {isLoading ? (
+                    <>
+                      <div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      <span>Creating Account...</span>
+                    </>
+                  ) : (
+                    <>
+                      <PlusIcon size={16} />
+                      <span>Create Student Account</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+/* ======================================================
+   ADD ADMIN MODAL
+   ====================================================== */
+interface CreatedAdminData {
+  name: string;
+  email: string;
+  password: string;
+}
+
+const AddAdminModal: React.FC<{
+  requesterId?: string;
+  onClose: () => void;
+  onSuccess: (msg: string) => void;
+  onError: (msg: string) => void;
+}> = ({ requesterId, onClose, onSuccess, onError }) => {
+  const [form, setForm] = useState({
+    name: '',
+    email: '',
+    password: '',
+  });
+
+  const [showPassword, setShowPassword] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const [createdAdmin, setCreatedAdmin] = useState<CreatedAdminData | null>(null);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
+
+  // Initialize strong default password
+  useEffect(() => {
+    setForm((prev) => ({
+      ...prev,
+      password: prev.password || generateSecureTemporaryPassword(),
+    }));
+  }, []);
+
+  const handleRegeneratePassword = () => {
+    setForm((prev) => ({ ...prev, password: generateSecureTemporaryPassword() }));
+  };
+
+  const copyToClipboard = (text: string, key: string) => {
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(text);
+      setCopiedKey(key);
+      setTimeout(() => setCopiedKey(null), 2200);
+    }
+  };
+
+  const handleCopyFullPackage = () => {
+    if (!createdAdmin) return;
+    const origin = typeof window !== 'undefined' ? window.location.origin : '';
+    const formatted = [
+      '==================================================',
+      'TEST PORTAL — ADMINISTRATOR ACCESS CREDENTIALS',
+      '==================================================',
+      `Administrator Name : ${createdAdmin.name}`,
+      `Admin Email        : ${createdAdmin.email}`,
+      `Access Role        : Administrator (Tests & Students Management)`,
+      `Password           : ${createdAdmin.password}`,
+      `Portal Address     : ${origin}`,
+      '--------------------------------------------------',
+      'Instructions: Navigate to the portal URL, choose Administrator role,',
+      'and sign in with your email and password. You will have privileges',
+      'to configure tests, schedule exams, and enroll new students.',
+      'Note: Only the primary Developer Administrator is authorized to provision new admins.',
+      '==================================================',
+    ].join('\n');
+
+    copyToClipboard(formatted, 'package');
+  };
+
+  const handleResetForAnother = () => {
+    setCreatedAdmin(null);
+    setValidationError(null);
+    setShowPassword(false);
+    setForm({
+      name: '',
+      email: '',
+      password: generateSecureTemporaryPassword(),
+    });
+  };
+
+  const handleCreate = (e: React.FormEvent) => {
+    e.preventDefault();
+    setValidationError(null);
+
+    const name = form.name.trim();
+    const email = form.email.trim();
+    const password = form.password.trim();
+
+    if (!name || !email || !password) {
+      setValidationError('Please fill in all administrator credential fields.');
+      return;
+    }
+
+    if (name.length < 2) {
+      setValidationError('Administrator name must be at least 2 characters long.');
+      return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      setValidationError('Please enter a valid administrator email address.');
+      return;
+    }
+
+    if (password.length < 8) {
+      setValidationError('Administrator password must be at least 8 characters long.');
+      return;
+    }
+
+    setIsLoading(true);
+    setTimeout(() => {
+      const res = createAdminAccount(name, email, password, requesterId);
+      setIsLoading(false);
+
+      if (res.success && res.account) {
+        onSuccess(res.message);
+        setCreatedAdmin({
+          name: res.account.name,
+          email: res.account.email,
+          password: password,
+        });
+      } else {
+        setValidationError(res.message);
+        onError(res.message);
+      }
+    }, 350);
+  };
+
+  return (
+    <div className="fixed inset-0 z-[9998] flex items-center justify-center p-4" data-lenis-prevent="true">
+      <div className="absolute inset-0 bg-black/75 backdrop-blur-sm" onClick={onClose} />
+      
+      <div className="relative bg-slate-900 border border-slate-700 rounded-3xl p-6 sm:p-7 w-full max-w-lg shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">
+        {/* MODAL HEADER */}
+        <div className="flex items-center justify-between pb-4 border-b border-slate-800 mb-5 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-violet-600/20 border border-violet-500/30 text-violet-400 font-bold">
+              <ShieldIcon size={20} />
+            </div>
+            <div>
+              <h3 className="text-lg font-black text-white">
+                {createdAdmin ? 'Administrator Account Provisioned' : 'Add Administrator'}
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">
+                {createdAdmin ? 'Credentials ready for distribution' : 'Grant test management & student enrollment privileges'}
+              </p>
+            </div>
+          </div>
           <button
-            type="submit"
-            disabled={isLoading}
-            className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-60 text-white font-bold py-3 rounded-xl transition-all cursor-pointer mt-2"
+            onClick={onClose}
+            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+            aria-label="Close modal"
           >
-            {isLoading ? 'Creating account...' : 'Create Student Account'}
+            <XIcon size={20} />
           </button>
-        </form>
+        </div>
+
+        {/* BODY CONTENT */}
+        <div className="overflow-y-auto pr-1 space-y-4 flex-1">
+          {createdAdmin ? (
+            <div className="space-y-5 py-1">
+              <div className="p-4 rounded-2xl bg-violet-950/40 border border-violet-500/30 flex items-start gap-3.5">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-violet-500/20 text-violet-400 shrink-0 mt-0.5">
+                  <CheckCircleIcon size={20} />
+                </div>
+                <div>
+                  <h4 className="text-sm font-black text-violet-300">New Administrator Created</h4>
+                  <p className="text-xs text-violet-400/90 mt-0.5 leading-relaxed">
+                    <strong className="text-white">{createdAdmin.name}</strong> now has administrator permissions to configure exams, review proctoring and results, and enroll students. (Note: Only Developer Administrator can add new admins.)
+                  </p>
+                </div>
+              </div>
+
+              {/* CREDENTIALS DISPLAY */}
+              <div className="bg-slate-800/80 border border-slate-700/80 rounded-2xl p-4 space-y-3">
+                <div className="flex items-center justify-between border-b border-slate-700/60 pb-2.5">
+                  <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Admin Credentials</span>
+                  <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-md bg-violet-500/10 border border-violet-500/30 text-violet-400">Admin Role</span>
+                </div>
+
+                <div className="grid grid-cols-1 gap-3 text-xs">
+                  <div>
+                    <span className="text-slate-400 block text-[11px] mb-0.5">Full Name</span>
+                    <span className="font-bold text-white text-sm">{createdAdmin.name}</span>
+                  </div>
+
+                  <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-900 border border-slate-700">
+                    <div>
+                      <span className="text-slate-400 block text-[10px] uppercase font-bold tracking-wider">Admin Login Email</span>
+                      <span className="font-mono text-slate-200 text-xs truncate max-w-[220px] block">{createdAdmin.email}</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => copyToClipboard(createdAdmin.email, 'email')}
+                      className="flex items-center gap-1 text-[11px] font-bold px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors cursor-pointer"
+                    >
+                      {copiedKey === 'email' ? <CheckIcon size={12} className="text-emerald-400" /> : <CopyIcon size={12} />}
+                      <span>{copiedKey === 'email' ? 'Copied' : 'Copy'}</span>
+                    </button>
+                  </div>
+
+                  <div className="flex items-center justify-between p-2.5 rounded-xl bg-slate-900 border border-slate-700">
+                    <div>
+                      <span className="text-slate-400 block text-[10px] uppercase font-bold tracking-wider">Administrator Password</span>
+                      <span className="font-mono font-bold text-amber-400 text-sm">
+                        {showPassword ? createdAdmin.password : '••••••••••••'}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white border border-slate-700 transition-colors cursor-pointer"
+                        title={showPassword ? 'Hide password' : 'Show password'}
+                      >
+                        {showPassword ? <EyeOffIcon size={14} /> : <EyeIcon size={14} />}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => copyToClipboard(createdAdmin.password, 'pass')}
+                        className="flex items-center gap-1 text-[11px] font-bold px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors cursor-pointer"
+                      >
+                        {copiedKey === 'pass' ? <CheckIcon size={12} className="text-emerald-400" /> : <CopyIcon size={12} />}
+                        <span>{copiedKey === 'pass' ? 'Copied' : 'Copy'}</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* ACTION BUTTONS */}
+              <div className="space-y-2 pt-1">
+                <button
+                  type="button"
+                  onClick={handleCopyFullPackage}
+                  className="w-full flex items-center justify-center gap-2 bg-violet-600 hover:bg-violet-500 text-white font-bold py-3 rounded-xl shadow-lg shadow-violet-900/30 transition-all cursor-pointer text-sm"
+                >
+                  {copiedKey === 'package' ? (
+                    <>
+                      <CheckIcon size={16} className="text-emerald-300" />
+                      <span>Copied Full Admin Credentials Package!</span>
+                    </>
+                  ) : (
+                    <>
+                      <CopyIcon size={16} />
+                      <span>Copy Admin Credentials Package</span>
+                    </>
+                  )}
+                </button>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={handleResetForAnother}
+                    className="flex items-center justify-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 font-bold py-2.5 rounded-xl transition-all cursor-pointer text-xs"
+                  >
+                    <PlusIcon size={14} />
+                    <span>Add Another</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="bg-slate-800 hover:bg-slate-700 text-white border border-slate-700 font-bold py-2.5 rounded-xl transition-all cursor-pointer text-xs"
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <form onSubmit={handleCreate} className="space-y-4">
+              {validationError && (
+                <div className="p-3 rounded-xl bg-rose-950/60 border border-rose-600/40 flex items-center gap-2.5 text-xs text-rose-300 font-medium">
+                  <AlertTriangleIcon size={16} className="text-rose-400 shrink-0" />
+                  <span>{validationError}</span>
+                </div>
+              )}
+
+              {/* Full Name */}
+              <div>
+                <label className="text-xs font-bold text-slate-300 uppercase tracking-wider block mb-1.5 flex items-center gap-1.5">
+                  <UserIcon size={13} className="text-violet-400" />
+                  <span>Administrator Full Name</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Marcus Vance"
+                  value={form.name}
+                  onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
+                  className="w-full bg-slate-800/90 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500/30 transition-all"
+                  required
+                />
+              </div>
+
+              {/* Email Address */}
+              <div>
+                <label className="text-xs font-bold text-slate-300 uppercase tracking-wider block mb-1.5 flex items-center gap-1.5">
+                  <MailIcon size={13} className="text-violet-400" />
+                  <span>Administrator Email Address</span>
+                </label>
+                <input
+                  type="email"
+                  placeholder="e.g. marcus.vance@testportal.com"
+                  value={form.email}
+                  onChange={(e) => setForm((prev) => ({ ...prev, email: e.target.value }))}
+                  className="w-full bg-slate-800/90 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500/30 transition-all"
+                  required
+                />
+              </div>
+
+              {/* Password */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
+                    Initial Administrator Password
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleRegeneratePassword}
+                    className="text-[11px] font-bold text-amber-400 hover:text-amber-300 flex items-center gap-1 transition-colors cursor-pointer"
+                  >
+                    <SparklesIcon size={11} />
+                    <span>Generate Strong</span>
+                  </button>
+                </div>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="Minimum 8 characters"
+                    value={form.password}
+                    onChange={(e) => setForm((prev) => ({ ...prev, password: e.target.value }))}
+                    className="w-full bg-slate-800/90 border border-slate-700 rounded-xl pl-4 pr-11 py-2.5 text-sm font-mono text-white placeholder-slate-500 focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500/30 transition-all"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white transition-colors cursor-pointer"
+                    aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  >
+                    {showPassword ? <EyeOffIcon size={16} /> : <EyeIcon size={16} />}
+                  </button>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1">Admin accounts receive full system rights. Password is hashed with bcrypt (10 rounds).</p>
+              </div>
+
+              {/* SUBMIT BUTTON */}
+              <div className="pt-2 flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="w-1/3 bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold py-3 rounded-xl border border-slate-700 transition-all cursor-pointer text-sm"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isLoading}
+                  className="w-2/3 bg-violet-600 hover:bg-violet-500 disabled:opacity-60 text-white font-bold py-3 rounded-xl shadow-lg shadow-violet-900/30 transition-all cursor-pointer text-sm flex items-center justify-center gap-2"
+                >
+                  {isLoading ? (
+                    <>
+                      <div className="h-4 w-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      <span>Provisioning Admin...</span>
+                    </>
+                  ) : (
+                    <>
+                      <PlusIcon size={16} />
+                      <span>Create Administrator</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </form>
+          )}
+        </div>
       </div>
     </div>
   );

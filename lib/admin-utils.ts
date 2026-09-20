@@ -52,6 +52,31 @@ export function deleteStudent(userId: string): UserAccount[] {
 }
 
 /* =========================================================================
+   ADMINISTRATOR MANAGEMENT
+   ========================================================================= */
+
+/** Suspend or reactivate an administrator account (protects primary developer admin) */
+export function toggleAdminStatus(userId: string): UserAccount[] {
+  if (userId === 'usr_admin_dev_001') return getAllUsers();
+  const users = getAllUsers();
+  const updated = users.map((u) =>
+    u.id === userId
+      ? { ...u, status: (u.status === 'active' ? 'suspended' : 'active') as 'active' | 'suspended' }
+      : u
+  );
+  saveUsers(updated);
+  return updated;
+}
+
+/** Permanently delete an administrator account (protects primary developer admin) */
+export function deleteAdmin(userId: string): UserAccount[] {
+  if (userId === 'usr_admin_dev_001') return getAllUsers();
+  const users = getAllUsers().filter((u) => u.id !== userId);
+  saveUsers(users);
+  return users;
+}
+
+/* =========================================================================
    TEST MANAGEMENT
    ========================================================================= */
 

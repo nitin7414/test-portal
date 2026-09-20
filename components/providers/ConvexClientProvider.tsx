@@ -20,12 +20,14 @@ export const useConnectionStatus = () => useContext(ConnectionContext);
 
 export function ConvexClientProvider({ children }: { children: React.ReactNode }) {
   const setOffline = useExamStore((state) => state.setOffline);
-  const [isOnline, setIsOnline] = useState<boolean>(() =>
-    typeof window !== 'undefined' ? navigator.onLine : true
-  );
+  const [isOnline, setIsOnline] = useState<boolean>(true);
 
   // Network connection state listeners
   useEffect(() => {
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setIsOnline(false);
+      setOffline(true);
+    }
     const handleOnline = () => {
       setIsOnline(true);
       setOffline(false);

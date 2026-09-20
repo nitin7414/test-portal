@@ -49,7 +49,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [registeredTests, setRegisteredTests] = useState<Record<string, boolean>>({});
 
-  const [allTests, setAllTests] = useState<TestMetadata[]>(() => getAllTests());
+  const [allTests, setAllTests] = useState<TestMetadata[]>([]);
 
   useEffect(() => {
     const refreshData = () => {
