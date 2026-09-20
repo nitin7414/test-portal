@@ -14,6 +14,20 @@ const STORAGE_TESTS_KEY   = 'tp_tests_config_v1';
 const STORAGE_CUSTOM_TESTS_KEY = 'tp_custom_tests_v1';
 const STORAGE_EXAM_KEYS   = ['tp_exam_session_', 'tp_answers_'];
 
+const DEMO_TEST_IDS = new Set([
+  'test_se_2025',
+  'test_frontend_2025',
+  'test_graphs_2025',
+  'test_dist_sys_2025',
+]);
+
+function broadcastTestUpdates(): void {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new Event('storage'));
+    window.dispatchEvent(new CustomEvent('tp_tests_updated'));
+  }
+}
+
 /* =========================================================================
    STUDENT MANAGEMENT
    ========================================================================= */
@@ -41,9 +55,9 @@ export function deleteStudent(userId: string): UserAccount[] {
    TEST MANAGEMENT
    ========================================================================= */
 
-/** Get all tests — merges base mocks and custom tests with any overrides stored in localStorage */
+/** Get all tests — dynamic tests stored in localStorage */
 export function getAllTests(): TestMetadata[] {
-  if (typeof window === 'undefined') return MOCK_TESTS;
+  if (typeof window === 'undefined') return [];
   try {
     let customTests: TestMetadata[] = [];
     const customRaw = localStorage.getItem(STORAGE_CUSTOM_TESTS_KEY);
@@ -51,26 +65,30 @@ export function getAllTests(): TestMetadata[] {
       customTests = JSON.parse(customRaw);
     }
 
+    // Clean out demo seed tests if any remain in local storage
+    customTests = customTests.filter((t) => !DEMO_TEST_IDS.has(t.id));
+
     const raw = localStorage.getItem(STORAGE_TESTS_KEY);
     const overrides: Record<string, Partial<TestMetadata>> = raw ? JSON.parse(raw) : {};
 
-    const allBase = [...MOCK_TESTS, ...customTests];
+    const allBase = [...MOCK_TESTS, ...customTests].filter((t) => !DEMO_TEST_IDS.has(t.id));
     return allBase.map((t) =>
       overrides[t.id] ? { ...t, ...overrides[t.id] } : t
     );
   } catch {
-    return MOCK_TESTS;
+    return [];
   }
 }
 
 /** Create and persist a newly uploaded / generated test */
 export function createNewTest(newTest: TestMetadata): TestMetadata[] {
-  if (typeof window === 'undefined') return MOCK_TESTS;
+  if (typeof window === 'undefined') return [];
   try {
     const customRaw = localStorage.getItem(STORAGE_CUSTOM_TESTS_KEY);
     const customTests: TestMetadata[] = customRaw ? JSON.parse(customRaw) : [];
-    const updated = [newTest, ...customTests.filter((t) => t.id !== newTest.id)];
+    const updated = [newTest, ...customTests.filter((t) => t.id !== newTest.id && !DEMO_TEST_IDS.has(t.id))];
     localStorage.setItem(STORAGE_CUSTOM_TESTS_KEY, JSON.stringify(updated));
+    broadcastTestUpdates();
   } catch (err) {
     console.error('Failed to save new test:', err);
   }
@@ -79,13 +97,14 @@ export function createNewTest(newTest: TestMetadata): TestMetadata[] {
 
 /** Delete a custom test */
 export function deleteTest(testId: string): TestMetadata[] {
-  if (typeof window === 'undefined') return MOCK_TESTS;
+  if (typeof window === 'undefined') return [];
   try {
     const customRaw = localStorage.getItem(STORAGE_CUSTOM_TESTS_KEY);
     if (customRaw) {
       const customTests: TestMetadata[] = JSON.parse(customRaw);
-      const filtered = customTests.filter((t) => t.id !== testId);
+      const filtered = customTests.filter((t) => t.id !== testId && !DEMO_TEST_IDS.has(t.id));
       localStorage.setItem(STORAGE_CUSTOM_TESTS_KEY, JSON.stringify(filtered));
+      broadcastTestUpdates();
     }
   } catch (err) {
     console.error('Failed to delete test:', err);
@@ -101,6 +120,7 @@ function saveTestOverride(testId: string, patch: Partial<TestMetadata>) {
     const overrides: Record<string, Partial<TestMetadata>> = raw ? JSON.parse(raw) : {};
     overrides[testId] = { ...(overrides[testId] || {}), ...patch };
     localStorage.setItem(STORAGE_TESTS_KEY, JSON.stringify(overrides));
+    broadcastTestUpdates();
   } catch { /* silent */ }
 }
 
@@ -205,8 +225,9 @@ export function resetTestConfigs(): TestMetadata[] {
   if (typeof window !== 'undefined') {
     localStorage.removeItem(STORAGE_TESTS_KEY);
     localStorage.removeItem(STORAGE_CUSTOM_TESTS_KEY);
+    broadcastTestUpdates();
   }
-  return MOCK_TESTS;
+  return [];
 }
 
 /* =========================================================================

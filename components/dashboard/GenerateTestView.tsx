@@ -126,8 +126,10 @@ export const GenerateTestView: React.FC<GenerateTestViewProps> = ({
     try {
       const extracted = await extractTextFromPdfFile(selected);
       setRawText(extracted);
-      processExtractedText(extracted, selected.name.replace(/\.[^/.]+$/, ''));
-      showToast(`Successfully extracted text from "${selected.name}"`);
+      const usedFallback = await processExtractedText(extracted, selected.name.replace(/\.[^/.]+$/, ''));
+      if (!usedFallback) {
+        showToast(`Successfully extracted text from "${selected.name}"`);
+      }
     } catch (err: any) {
       console.error('PDF extraction error:', err);
       showToast(err.message || 'Failed to extract text from PDF. You can paste text directly.', 'error');
@@ -137,8 +139,55 @@ export const GenerateTestView: React.FC<GenerateTestViewProps> = ({
   };
 
   // Process raw text into structured questions
-  const processExtractedText = (text: string, defaultName?: string) => {
-    const res = parseQuestionsFromRawText(text);
+  const processExtractedText = async (text: string, defaultName?: string): Promise<boolean> => {
+    // Primary path: Fast local regex parser
+    let res = parseQuestionsFromRawText(text);
+    let usedFallback = false;
+
+    // Check if regex extraction was empty or insufficient
+    // ("insufficient" defined as: zero questions, or any question missing a correctAnswer)
+    const isInsufficient =
+      res.questions.length === 0 ||
+      res.questions.some((q) => !q.correctOptionKey || !q.correctOptionKey.trim()) ||
+      res.identifiedAnswersCount < res.questions.length;
+
+    // Fallback path: If regex extraction produces zero questions, missing questions,
+    // or empty/malformed answer keys, fall back to Groq LLM extraction via /api/generate-test.
+    // NOTE: This must remain strictly a fallback path (never the primary path)
+    // in order to control API usage and minimize cost on the free tier.
+    if (isInsufficient) {
+      setIsExtracting(true);
+      try {
+        const response = await fetch('/api/generate-test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rawText: text }),
+        });
+
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.error || `Server returned status ${response.status}`);
+        }
+
+        const fallbackResult = await response.json();
+        if (fallbackResult.questions && fallbackResult.questions.length > 0) {
+          res = fallbackResult;
+          usedFallback = true;
+          showToast('Parsed questions using Groq LLM fallback');
+        } else {
+          showToast('LLM fallback was unable to extract questions from the document', 'error');
+        }
+      } catch (err: any) {
+        console.error('Groq LLM extraction fallback failed:', err);
+        showToast(
+          err.message || 'LLM parsing fallback failed. You can paste or edit questions manually.',
+          'error'
+        );
+      } finally {
+        setIsExtracting(false);
+      }
+    }
+
     setQuestions(res.questions);
     setParseWarnings(res.warnings);
     setHasParsed(true);
@@ -159,6 +208,8 @@ export const GenerateTestView: React.FC<GenerateTestViewProps> = ({
         `Comprehensive evaluation extracted from uploaded question paper covering ${res.questions.length} questions.`
       );
     }
+
+    return usedFallback;
   };
 
   // Load sample paper text
@@ -446,10 +497,14 @@ export const GenerateTestView: React.FC<GenerateTestViewProps> = ({
             />
             <button
               type="button"
+              disabled={isExtracting}
               onClick={() => processExtractedText(rawText, 'Custom Question Paper')}
-              className="text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 px-4 py-2 rounded-xl transition-all cursor-pointer"
+              className="text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 px-4 py-2 rounded-xl transition-all cursor-pointer flex items-center gap-2"
             >
-              Reparse Raw Text
+              {isExtracting && (
+                <div className="h-3.5 w-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              )}
+              {isExtracting ? 'Parsing...' : 'Reparse Raw Text'}
             </button>
           </div>
         )}

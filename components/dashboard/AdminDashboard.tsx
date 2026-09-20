@@ -59,7 +59,24 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
 
   useEffect(() => {
     refresh();
-    setTimeout(() => setIsLoaded(true), 100);
+    const timer = setTimeout(() => setIsLoaded(true), 100);
+
+    const handleSync = () => {
+      refresh();
+    };
+
+    window.addEventListener('storage', handleSync);
+    window.addEventListener('tp_tests_updated', handleSync);
+    window.addEventListener('tp_users_updated', handleSync);
+    window.addEventListener('tp_results_updated', handleSync);
+
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('storage', handleSync);
+      window.removeEventListener('tp_tests_updated', handleSync);
+      window.removeEventListener('tp_users_updated', handleSync);
+      window.removeEventListener('tp_results_updated', handleSync);
+    };
   }, [refresh]);
 
   const filteredStudents = students.filter((s) =>

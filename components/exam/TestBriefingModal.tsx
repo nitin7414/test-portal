@@ -2,7 +2,7 @@
 
 import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { MOCK_TESTS } from '@/lib/mock-tests';
+import { getAllTests } from '@/lib/admin-utils';
 import { Button } from '@/components/ui/Button';
 import {
   ClockIcon,
@@ -31,7 +31,7 @@ export const TestBriefingModal: React.FC<TestBriefingModalProps> = ({
 
   if (!isOpen || !testId) return null;
 
-  const test = MOCK_TESTS.find((t) => t.id === testId) || {
+  const test = getAllTests().find((t) => t.id === testId) || {
     id: testId,
     title: 'Assessment Examination',
     category: 'Computer Science',
@@ -67,7 +67,7 @@ export const TestBriefingModal: React.FC<TestBriefingModalProps> = ({
             </div>
             <div>
               <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400">
-                Retake Assessment
+                Assessment Briefing & Instructions
               </span>
               <h2 id="briefing-modal-title" className="text-lg font-bold text-white leading-tight">
                 {test.title}
@@ -181,7 +181,7 @@ export const TestBriefingModal: React.FC<TestBriefingModalProps> = ({
             }}
             rightIcon={<ArrowRightIcon size={15} />}
           >
-            Start Retake Attempt
+            Start Assessment Now
           </Button>
         </div>
       </div>

@@ -54,7 +54,7 @@ export const DEFAULT_CREDENTIALS = {
 };
 
 /**
- * Retrieve all registered accounts from localStorage, initializing with default accounts if empty
+ * Retrieve all registered accounts from localStorage, ensuring demo credentials always remain
  */
 export function getAllUsers(): UserAccount[] {
   if (typeof window === 'undefined') {
@@ -67,7 +67,23 @@ export function getAllUsers(): UserAccount[] {
       localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify(INITIAL_USERS));
       return INITIAL_USERS;
     }
-    return JSON.parse(raw);
+    const stored: UserAccount[] = JSON.parse(raw);
+    const existingIds = new Set(stored.map((u) => u.id));
+    let modified = false;
+
+    // Ensure demo accounts (admin and alex morgan) are always accessible
+    for (const initUser of INITIAL_USERS) {
+      if (!existingIds.has(initUser.id)) {
+        stored.unshift(initUser);
+        modified = true;
+      }
+    }
+
+    if (modified) {
+      localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify(stored));
+    }
+
+    return stored;
   } catch (err) {
     console.error('Failed to read users from localStorage:', err);
     return INITIAL_USERS;
@@ -75,12 +91,14 @@ export function getAllUsers(): UserAccount[] {
 }
 
 /**
- * Save user list to local storage
+ * Save user list to local storage and broadcast synchronization event
  */
 export function saveUsers(users: UserAccount[]): void {
   if (typeof window === 'undefined') return;
   try {
     localStorage.setItem(STORAGE_USERS_KEY, JSON.stringify(users));
+    window.dispatchEvent(new Event('storage'));
+    window.dispatchEvent(new CustomEvent('tp_users_updated'));
   } catch (err) {
     console.error('Failed to write users to localStorage:', err);
   }
@@ -241,7 +259,7 @@ export function createStudentAccount(
   }
 
   const salt = bcrypt.genSaltSync(10);
-  const passwordHash = bcrypt.hashSync(plainPassword, salt);
+  const passwordHash = bcrypt.hashSync(plainPassword.trim(), salt);
 
   const newStudent: UserAccount = {
     id: `usr_stu_${Date.now()}`,

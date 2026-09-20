@@ -49,33 +49,57 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [registeredTests, setRegisteredTests] = useState<Record<string, boolean>>({});
 
+  const [allTests, setAllTests] = useState<TestMetadata[]>(() => getAllTests());
+
   useEffect(() => {
-    const data = getStudentTestResults(session.user.id);
-    setResults(data);
+    const refreshData = () => {
+      setResults(getStudentTestResults(session.user.id));
+      setAllTests(getAllTests());
+    };
+
+    refreshData();
     const timer = setTimeout(() => setIsLoaded(true), 150);
-    return () => clearTimeout(timer);
+
+    window.addEventListener('storage', refreshData);
+    window.addEventListener('tp_tests_updated', refreshData);
+    window.addEventListener('tp_results_updated', refreshData);
+
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('storage', refreshData);
+      window.removeEventListener('tp_tests_updated', refreshData);
+      window.removeEventListener('tp_results_updated', refreshData);
+    };
   }, [session.user.id]);
 
   // All tests and student portal visibility filter
-  const allTests = useMemo<TestMetadata[]>(() => getAllTests(), []);
   const visibleTests = useMemo<TestMetadata[]>(() => {
     return allTests.filter((t) => isTestVisibleToStudent(t, session.user));
   }, [allTests, session.user]);
 
-  const upcomingTests = useMemo<TestMetadata[]>(() => {
-    return visibleTests.filter((t) => t.status === 'upcoming');
+  // Available tests (active or upcoming, excluding archived)
+  const availableTests = useMemo<TestMetadata[]>(() => {
+    return visibleTests.filter((t) => t.status !== 'archived');
   }, [visibleTests]);
 
-  const upcomingCategories = useMemo(() => {
+  const upcomingTests = useMemo<TestMetadata[]>(() => {
+    return availableTests.filter((t) => t.status === 'upcoming');
+  }, [availableTests]);
+
+  const activeTests = useMemo<TestMetadata[]>(() => {
+    return availableTests.filter((t) => t.status === 'active');
+  }, [availableTests]);
+
+  const browseCategories = useMemo(() => {
     const set = new Set<string>(['All']);
-    upcomingTests.forEach((t) => {
+    availableTests.forEach((t) => {
       if (t.category) set.add(t.category);
     });
     return Array.from(set);
-  }, [upcomingTests]);
+  }, [availableTests]);
 
-  const filteredUpcomingTests = useMemo(() => {
-    return upcomingTests.filter((t) => {
+  const filteredBrowseTests = useMemo(() => {
+    return availableTests.filter((t) => {
       const matchCat = browseCategory === 'All' || t.category === browseCategory;
       const matchSearch =
         t.title.toLowerCase().includes(browseSearchQuery.toLowerCase()) ||
@@ -83,7 +107,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
         t.description.toLowerCase().includes(browseSearchQuery.toLowerCase());
       return matchCat && matchSearch;
     });
-  }, [upcomingTests, browseCategory, browseSearchQuery]);
+  }, [availableTests, browseCategory, browseSearchQuery]);
 
   const handleToggleRegister = (testId: string) => {
     setRegisteredTests((prev) => ({
@@ -214,7 +238,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
               <span className={`text-[10px] px-1.5 py-0.2 rounded-md font-mono ${
                 activeTab === 'browse' ? 'bg-indigo-700 text-white' : 'bg-indigo-500/20 text-indigo-300'
               }`}>
-                {upcomingTests.length}
+                {availableTests.length}
               </span>
             </button>
 
@@ -345,7 +369,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                   <span>1. Browse Assessments</span>
                 </div>
                 <span className="text-[10px] bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded-md font-mono">
-                  {upcomingTests.length}
+                  {availableTests.length}
                 </span>
               </button>
 
@@ -413,9 +437,9 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
         >
           <div className="relative">
             <CalendarIcon size={16} />
-            {upcomingTests.length > 0 && (
+            {availableTests.length > 0 && (
               <span className="absolute -top-1.5 -right-3 h-4 min-w-[16px] px-1 bg-indigo-600 text-white rounded-full text-[9px] font-black flex items-center justify-center">
-                {upcomingTests.length}
+                {availableTests.length}
               </span>
             )}
           </div>
@@ -597,6 +621,93 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
               </div>
             </section>
 
+            {/* AVAILABLE ASSESSMENTS SECTION */}
+            {availableTests.length > 0 && (
+              <section
+                aria-labelledby="available-tests-heading"
+                className={`transition-all duration-700 delay-150 ${isLoaded ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-6'}`}
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">
+                  <div>
+                    <h2 id="available-tests-heading" className="text-xl font-bold text-slate-900 tracking-tight flex items-center gap-2">
+                      <CalendarIcon size={20} className="text-indigo-500" />
+                      Available Assessments
+                    </h2>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Assessments published and available for your batch to attempt
+                    </p>
+                  </div>
+
+                  <button
+                    onClick={() => setActiveTab('browse')}
+                    className="self-start sm:self-auto text-xs font-bold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 px-3.5 py-1.5 rounded-xl transition-colors cursor-pointer flex items-center gap-1.5"
+                  >
+                    <span>Browse All ({availableTests.length})</span>
+                    <ArrowRightIcon size={13} />
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+                  {availableTests.slice(0, 3).map((test) => (
+                    <div
+                      key={test.id}
+                      className="bg-white rounded-3xl border border-slate-200/90 shadow-xs hover:shadow-lg transition-all p-5 flex flex-col justify-between"
+                    >
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between gap-2 flex-wrap">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-700 bg-indigo-50 border border-indigo-200/70 px-2 py-0.5 rounded-md">
+                            {test.category}
+                          </span>
+                          {test.status === 'active' ? (
+                            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/80 px-2 py-0.5 rounded flex items-center gap-1">
+                              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                              Live Now
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200/80 px-2 py-0.5 rounded flex items-center gap-1">
+                              Upcoming
+                            </span>
+                          )}
+                        </div>
+
+                        <div>
+                          <div className="text-[10px] font-mono text-slate-400 mb-0.5">{test.code}</div>
+                          <h3 className="text-base font-extrabold text-slate-900 leading-snug line-clamp-1">{test.title}</h3>
+                          <p className="text-xs text-slate-500 mt-1 line-clamp-2">{test.description}</p>
+                        </div>
+
+                        <div className="flex items-center gap-4 text-xs text-slate-500 pt-2 border-t border-slate-100">
+                          <span className="flex items-center gap-1 font-semibold text-slate-700">
+                            <ClockIcon size={13} className="text-slate-400" />
+                            {test.durationMinutes} Mins
+                          </span>
+                          <span className="flex items-center gap-1 font-semibold text-slate-700">
+                            <BookOpenIcon size={13} className="text-slate-400" />
+                            {test.totalQuestions || test.sections?.reduce((s, sec) => s + (sec.questions?.length || 0), 0) || 0} Questions
+                          </span>
+                          <span className="flex items-center gap-1 font-semibold text-slate-700">
+                            <AwardIcon size={13} className="text-slate-400" />
+                            {test.totalMarks} Marks
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="pt-4 mt-2">
+                        <button
+                          type="button"
+                          onClick={() => setRetakeTestId(test.id)}
+                          className="w-full py-2.5 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-900/20"
+                        >
+                          <ArrowRightIcon size={14} />
+                          <span>Start Assessment</span>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+
             {/* TOPIC PROFICIENCY SPECTRUM */}
             {Object.keys(stats.topicsMap).length > 0 && (
               <section aria-labelledby="topics-heading"
@@ -726,17 +837,17 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                   </span>
                 </div>
                 <h1 className="text-2xl sm:text-4xl font-black tracking-tight text-white">
-                  Upcoming Assessments
+                  Available Assessments
                 </h1>
                 <p className="text-xs sm:text-sm text-slate-300 mt-1 max-w-xl leading-relaxed">
-                  Browse scheduled evaluations and technical screenings. Reserve your slot and review the syllabus before exam day.
+                  Browse scheduled evaluations and technical screenings. Start active tests immediately or reserve your slot for upcoming sessions.
                 </p>
               </div>
 
               <div className="flex items-center gap-3 shrink-0">
                 <div className="bg-white/10 border border-white/15 px-4 py-2.5 rounded-2xl text-center">
-                  <span className="block text-2xl font-black text-white">{upcomingTests.length}</span>
-                  <span className="text-[10px] uppercase font-bold text-indigo-200">Scheduled Tests</span>
+                  <span className="block text-2xl font-black text-white">{availableTests.length}</span>
+                  <span className="text-[10px] uppercase font-bold text-indigo-200">Available Tests</span>
                 </div>
               </div>
             </div>
@@ -746,7 +857,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white p-3 sm:p-4 rounded-2xl border border-slate-200 shadow-xs">
             <div className="flex items-center gap-2 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0">
               <span className="text-xs font-bold text-slate-400 shrink-0">Category:</span>
-              {upcomingCategories.map((cat) => (
+              {browseCategories.map((cat) => (
                 <button
                   key={cat}
                   onClick={() => setBrowseCategory(cat)}
@@ -764,7 +875,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
             <div className="w-full sm:w-72">
               <input
                 type="text"
-                placeholder="Search upcoming tests..."
+                placeholder="Search assessments..."
                 value={browseSearchQuery}
                 onChange={(e) => setBrowseSearchQuery(e.target.value)}
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30 transition-all"
@@ -772,18 +883,18 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
             </div>
           </div>
 
-          {/* Grid of Upcoming Assessment Cards */}
-          {filteredUpcomingTests.length === 0 ? (
+          {/* Grid of Assessment Cards */}
+          {filteredBrowseTests.length === 0 ? (
             <div className="text-center py-16 bg-white rounded-3xl border border-slate-200 shadow-xs space-y-3">
               <CalendarIcon size={40} className="mx-auto text-slate-300" />
-              <h3 className="font-bold text-slate-700">No upcoming assessments match your filter</h3>
+              <h3 className="font-bold text-slate-700">No assessments match your filter</h3>
               <p className="text-xs text-slate-400 max-w-sm mx-auto">
                 Try clearing your search query or selecting "All" categories.
               </p>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {filteredUpcomingTests.map((test) => {
+              {filteredBrowseTests.map((test) => {
                 const isRegistered = Boolean(registeredTests[test.id]);
                 return (
                   <div
@@ -821,9 +932,16 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                           <code className="text-[10px] font-mono text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
                             {test.code}
                           </code>
-                          <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded">
-                            Upcoming
-                          </span>
+                          {test.status === 'active' ? (
+                            <span className="text-[10px] font-bold text-emerald-700 bg-emerald-50 border border-emerald-200/80 px-2 py-0.5 rounded flex items-center gap-1">
+                              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                              Live Now
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-bold text-amber-700 bg-amber-50 border border-amber-200/80 px-2 py-0.5 rounded flex items-center gap-1">
+                              Upcoming
+                            </span>
+                          )}
                         </div>
                         <h3 className="text-base font-extrabold text-slate-900 group-hover:text-indigo-600 transition-colors leading-snug">
                           {test.title}
@@ -882,36 +1000,60 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
                     {/* Footer Actions */}
                     <div className="p-4 bg-slate-50 border-t border-slate-100 flex items-center gap-2.5">
-                      <button
-                        type="button"
-                        onClick={() => handleToggleRegister(test.id)}
-                        className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-                          isRegistered
-                            ? 'bg-emerald-600 text-white shadow-xs'
-                            : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-900/20'
-                        }`}
-                      >
-                        {isRegistered ? (
-                          <>
-                            <CheckCircleIcon size={14} />
-                            <span>Registered</span>
-                          </>
-                        ) : (
-                          <>
-                            <CalendarIcon size={14} />
-                            <span>Register for Test</span>
-                          </>
-                        )}
-                      </button>
+                      {test.status === 'active' ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => setRetakeTestId(test.id)}
+                            className="flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-900/20"
+                          >
+                            <ArrowRightIcon size={14} />
+                            <span>Start Assessment</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setRetakeTestId(test.id)}
+                            className="py-2.5 px-3 rounded-xl text-xs font-bold text-slate-700 hover:text-black bg-white hover:bg-slate-100 border border-slate-200 transition-colors cursor-pointer"
+                            title="View Instructions"
+                          >
+                            <BookOpenIcon size={14} />
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleToggleRegister(test.id)}
+                            className={`flex-1 py-2.5 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+                              isRegistered
+                                ? 'bg-emerald-600 text-white shadow-xs'
+                                : 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-md shadow-indigo-900/20'
+                            }`}
+                          >
+                            {isRegistered ? (
+                              <>
+                                <CheckCircleIcon size={14} />
+                                <span>Registered</span>
+                              </>
+                            ) : (
+                              <>
+                                <CalendarIcon size={14} />
+                                <span>Register for Test</span>
+                              </>
+                            )}
+                          </button>
 
-                      <button
-                        type="button"
-                        onClick={() => setRetakeTestId(test.id)}
-                        className="py-2.5 px-3 rounded-xl text-xs font-bold text-slate-700 hover:text-black bg-white hover:bg-slate-100 border border-slate-200 transition-colors cursor-pointer"
-                        title="View Instructions"
-                      >
-                        <BookOpenIcon size={14} />
-                      </button>
+                          <button
+                            type="button"
+                            onClick={() => setRetakeTestId(test.id)}
+                            className="py-2.5 px-3 rounded-xl text-xs font-bold text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 transition-colors cursor-pointer flex items-center gap-1"
+                            title="Start Assessment"
+                          >
+                            <span>Start</span>
+                            <ArrowRightIcon size={13} />
+                          </button>
+                        </>
+                      )}
                     </div>
                   </div>
                 );

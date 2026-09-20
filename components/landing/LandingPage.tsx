@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   UserIcon,
   ShieldIcon,
@@ -45,6 +45,18 @@ export default function LandingPage() {
   const [usersList, setUsersList] = useState<UserAccount[]>(() =>
     typeof window !== 'undefined' ? getAllUsers() : []
   );
+
+  useEffect(() => {
+    const handleUsersUpdate = () => {
+      setUsersList(getAllUsers());
+    };
+    window.addEventListener('storage', handleUsersUpdate);
+    window.addEventListener('tp_users_updated', handleUsersUpdate);
+    return () => {
+      window.removeEventListener('storage', handleUsersUpdate);
+      window.removeEventListener('tp_users_updated', handleUsersUpdate);
+    };
+  }, []);
 
   // Admin student creation form state
   const [showAdminProvisionModal, setShowAdminProvisionModal] = useState(false);
