@@ -11,6 +11,7 @@
 import type * as answers from "../answers.js";
 import type * as attempts from "../attempts.js";
 import type * as tests from "../tests.js";
+import type * as users from "../users.js";
 
 import type {
   ApiFromModules,
@@ -22,6 +23,7 @@ declare const fullApi: ApiFromModules<{
   answers: typeof answers;
   attempts: typeof attempts;
   tests: typeof tests;
+  users: typeof users;
 }>;
 
 /**

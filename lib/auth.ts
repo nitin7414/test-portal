@@ -1,9 +1,108 @@
 import bcrypt from 'bcryptjs';
 import { UserAccount, AuthSession, UserRole, AuthResponse } from '@/types/auth';
 
+import { ConvexHttpClient } from 'convex/browser';
+import { api } from '@/convex/_generated/api';
+
 const STORAGE_USERS_KEY = 'tp_accounts_v2';
 const STORAGE_LEGACY_USERS_KEY = 'tp_accounts_v1';
 const STORAGE_SESSION_KEY = 'tp_active_session_v2';
+
+const CONVEX_URL = process.env.NEXT_PUBLIC_CONVEX_URL || 'https://formal-hummingbird-972.convex.cloud';
+let convexHttpClient: ConvexHttpClient | null = null;
+
+function getConvexClient(): ConvexHttpClient | null {
+  if (!convexHttpClient && typeof window !== 'undefined' && CONVEX_URL) {
+    try {
+      convexHttpClient = new ConvexHttpClient(CONVEX_URL);
+    } catch (e) {
+      console.warn('ConvexHttpClient init notice:', e);
+    }
+  }
+  return convexHttpClient;
+}
+
+/**
+ * Background sync helper: push user account to Convex cloud database
+ */
+export async function syncUserToDatabase(user: UserAccount): Promise<void> {
+  try {
+    const client = getConvexClient();
+    if (!client) return;
+    await client.mutation(api.users.upsertUser, {
+      userId: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      isSuperAdmin: user.isSuperAdmin,
+      studentId: user.studentId,
+      batch: user.batch,
+      subject: user.subject || user.batch,
+      passwordHash: user.passwordHash,
+      plainPassword: user.plainPassword,
+      status: user.status,
+      createdAt: user.createdAt,
+    });
+  } catch (err) {
+    console.warn('Convex user sync notice:', err);
+  }
+}
+
+/**
+ * Background sync helper: pull all users from Convex cloud database and merge locally
+ */
+export async function syncUsersFromDatabase(): Promise<UserAccount[]> {
+  if (typeof window === 'undefined') return getAllUsers();
+  try {
+    const client = getConvexClient();
+    if (!client) return getAllUsers();
+    const cloudUsers = await client.query(api.users.listUsers);
+    if (cloudUsers && cloudUsers.length > 0) {
+      const localUsers = getAllUsers();
+      let modified = false;
+
+      for (const cu of cloudUsers) {
+        const idx = localUsers.findIndex(
+          (u) =>
+            u.email.toLowerCase() === cu.email.toLowerCase() ||
+            (u.studentId && cu.studentId && u.studentId.toUpperCase() === cu.studentId.toUpperCase())
+        );
+
+        if (idx < 0) {
+          localUsers.push({
+            id: cu.userId,
+            name: cu.name,
+            email: cu.email,
+            role: cu.role,
+            isSuperAdmin: cu.isSuperAdmin,
+            studentId: cu.studentId,
+            batch: cu.batch,
+            subject: cu.subject,
+            passwordHash: cu.passwordHash,
+            plainPassword: cu.plainPassword,
+            status: cu.status,
+            createdAt: cu.createdAt,
+          });
+          modified = true;
+        } else {
+          // If cloud has plainPassword and local does not, merge it
+          if (cu.plainPassword && !localUsers[idx].plainPassword) {
+            localUsers[idx].plainPassword = cu.plainPassword;
+            modified = true;
+          }
+        }
+      }
+
+      if (modified) {
+        saveUsers(localUsers);
+      }
+      return localUsers;
+    }
+  } catch (err) {
+    console.warn('Convex pull sync notice:', err);
+  }
+  return getAllUsers();
+}
 
 // Primary baseline system accounts with verified bcrypt hashes and plain fallback credentials
 export const INITIAL_USERS: UserAccount[] = [
@@ -33,8 +132,9 @@ export const INITIAL_USERS: UserAccount[] = [
     id: 'usr_stu_001',
     name: 'Alex Morgan',
     email: 'alex.morgan@testportal.com',
-    studentId: 'STU-2025-001',
-    batch: 'CS Major - Section A',
+    studentId: 'STD-001',
+    batch: 'Computer Science',
+    subject: 'Computer Science',
     role: 'student',
     passwordHash: '$2b$10$sqEIFWLJAffDZi9NCY7lg./r2bikFGvzp9pt4kTQSphpVZW5JEAMS', // Student@Alex2025
     plainPassword: 'Student@Alex2025',
@@ -45,8 +145,9 @@ export const INITIAL_USERS: UserAccount[] = [
     id: 'usr_stu_002',
     name: 'Sarah Chen',
     email: 'sarah.chen@testportal.com',
-    studentId: 'STU-2025-002',
-    batch: 'Software Eng - Section B',
+    studentId: 'STD-002',
+    batch: 'Mathematics',
+    subject: 'Mathematics',
     role: 'student',
     passwordHash: '$2b$10$evJg3YmwiNMc85vMWJSg1Ojx45Ip5tbECp1YoNmGvS9juJfmJVItO', // Student@Sarah2025
     plainPassword: 'Student@Sarah2025',
@@ -69,17 +170,17 @@ export const DEFAULT_CREDENTIALS = {
     role: 'admin' as const,
   },
   student: {
-    identifier: 'STU-2025-001',
+    identifier: 'STD-001',
     email: 'alex.morgan@testportal.com',
     password: 'Student@Alex2025',
-    label: 'Enrolled Candidate (Alex Morgan)',
+    label: 'Enrolled Candidate (STD-001)',
     role: 'student' as const,
   },
   student2: {
-    identifier: 'STU-2025-002',
+    identifier: 'STD-002',
     email: 'sarah.chen@testportal.com',
     password: 'Student@Sarah2025',
-    label: 'Enrolled Candidate (Sarah Chen)',
+    label: 'Enrolled Candidate (STD-002)',
     role: 'student' as const,
   },
 };
@@ -204,7 +305,16 @@ function findMatchingUser(users: UserAccount[], input: string): UserAccount | un
   );
   if (exactStudentId) return exactStudentId;
 
-  // 3. Alphanumeric normalized Student ID (e.g. "stu2025001" or "stu-2025-001" or "stu001")
+  // 2b. If user typed only digits (e.g. "001" or "3"), match STD-001 or STD-003
+  if (/^\d+$/.test(trimmed)) {
+    const padded = `std-${trimmed.padStart(3, '0')}`;
+    const matchedPadded = users.find(
+      (u) => u.studentId && u.studentId.trim().toLowerCase() === padded
+    );
+    if (matchedPadded) return matchedPadded;
+  }
+
+  // 3. Alphanumeric normalized Student ID (e.g. "std001" or "stu2025001")
   const normalizedInput = trimmed.replace(/[^a-z0-9]/gi, '');
   if (normalizedInput.length >= 3) {
     const normStudent = users.find(
@@ -305,13 +415,13 @@ function verifyUserPassword(user: UserAccount, enteredPass: string): boolean {
     if (valid.includes(lowerPass)) return true;
   }
 
-  if (email === 'alex.morgan@testportal.com' || sId === 'STU-2025-001') {
-    const valid = ['student@alex2025', 'student', 'alex', 'password', 'student123', 'student@123', '123456'];
+  if (email === 'alex.morgan@testportal.com' || sId === 'STD-001' || sId === 'STU-2025-001') {
+    const valid = ['student@alex2025', 'student', 'alex', 'password', 'student123', 'student@123', '123456', 'std-001'];
     if (valid.includes(lowerPass)) return true;
   }
 
-  if (email === 'sarah.chen@testportal.com' || sId === 'STU-2025-002') {
-    const valid = ['student@sarah2025', 'student', 'sarah', 'password', 'student123', 'student@123', '123456'];
+  if (email === 'sarah.chen@testportal.com' || sId === 'STD-002' || sId === 'STU-2025-002') {
+    const valid = ['student@sarah2025', 'student', 'sarah', 'password', 'student123', 'student@123', '123456', 'std-002'];
     if (valid.includes(lowerPass)) return true;
   }
 
@@ -385,6 +495,7 @@ export function authenticateUser(
       isSuperAdmin: user.id === 'usr_admin_dev_001' || user.isSuperAdmin === true,
       studentId: user.studentId,
       batch: user.batch,
+      subject: user.subject || user.batch,
     },
     expiresAt: Date.now() + 86400 * 3 * 1000,
   };
@@ -433,77 +544,100 @@ export function clearActiveSession(): void {
 }
 
 /**
- * Admin utility: Create a new student account with bcrypt hash and instant credential verification
+ * Admin utility: Create a new student account.
+ * Requires ONLY:
+ * 1. studentId (format: "STD-XXX", e.g. STD-003)
+ * 2. plainPassword
+ * 3. subject (e.g. "Computer Science", "Mathematics", "Physics")
+ * Automatically formats ID to STD-XXX, generates name and email, hashes password with bcrypt,
+ * persists to localStorage and synchronizes with Convex database.
  */
 export function createStudentAccount(
-  name: string,
-  email: string,
-  studentId: string,
-  batch: string,
-  plainPassword: string
+  p1: string,
+  p2: string,
+  p3: string = 'General Subject',
+  p4?: string,
+  p5?: string
 ): { success: boolean; message: string; account?: UserAccount } {
-  const trimmedName = name.trim();
-  const trimmedEmail = email.trim().toLowerCase();
-  const trimmedId = studentId.trim().toUpperCase();
-  const trimmedBatch = batch.trim();
-  const trimmedPass = plainPassword.trim();
+  let rawStudentId = '';
+  let plainPassword = '';
+  let subject = '';
 
-  if (!trimmedName || !trimmedEmail || !trimmedId || !trimmedPass) {
+  // Check if called as legacy 5-argument: (name, email, studentId, batch, plainPassword)
+  if (p4 !== undefined && p5 !== undefined) {
+    rawStudentId = p3.trim();
+    plainPassword = p5.trim();
+    subject = p4.trim();
+  } else {
+    // New 3-field format: (studentId, plainPassword, subject)
+    rawStudentId = p1.trim();
+    plainPassword = p2.trim();
+    subject = (p3 || 'General Subject').trim();
+  }
+
+  if (!rawStudentId) {
     return {
       success: false,
-      message: 'All fields (Full Name, Email Address, Student ID, and Password) are required.',
+      message: 'Student ID is required (e.g. STD-001).',
     };
   }
 
-  if (trimmedName.length < 2) {
+  // Normalize Student ID to STD-XXX
+  let normalizedId = rawStudentId.toUpperCase();
+  const digitMatch = normalizedId.match(/(\d+)$/);
+  if (digitMatch && !normalizedId.startsWith('STD-')) {
+    const num = parseInt(digitMatch[1], 10);
+    normalizedId = `STD-${String(num).padStart(3, '0')}`;
+  } else if (!normalizedId.startsWith('STD-')) {
+    normalizedId = `STD-${normalizedId}`;
+  }
+
+  // Ensure format STD-XXX (3 or more alphanumeric characters)
+  if (!/^STD-[A-Z0-9]{3,}$/i.test(normalizedId)) {
     return {
       success: false,
-      message: 'Student name must contain at least 2 characters.',
+      message: 'Student ID must be in the format STD-XXX (e.g. STD-001, STD-002, STD-003).',
     };
   }
 
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  if (!emailRegex.test(trimmedEmail)) {
+  if (!plainPassword || plainPassword.length < 3) {
     return {
       success: false,
-      message: 'Please provide a valid email address (e.g. name@university.edu).',
+      message: 'Password must be at least 3 characters long.',
     };
   }
 
-  if (trimmedPass.length < 4) {
-    return {
-      success: false,
-      message: 'Password must be at least 4 characters long.',
-    };
-  }
+  const finalSubject = subject || 'General Subject';
+  const finalName = `Student ${normalizedId}`;
+  const finalEmail = `${normalizedId.toLowerCase()}@testportal.com`;
 
   const users = getAllUsers();
   const existing = users.find(
     (u) =>
-      u.email.toLowerCase() === trimmedEmail ||
-      (u.studentId && u.studentId.toLowerCase() === trimmedId.toLowerCase())
+      (u.studentId && u.studentId.toUpperCase() === normalizedId) ||
+      u.email.toLowerCase() === finalEmail
   );
 
   if (existing) {
-    const fieldConflict = existing.email.toLowerCase() === trimmedEmail ? 'Email address' : 'Student ID';
     return {
       success: false,
-      message: `A candidate account with this ${fieldConflict} ("${fieldConflict === 'Email address' ? trimmedEmail : trimmedId}") already exists.`,
+      message: `A student account with ID "${normalizedId}" already exists.`,
     };
   }
 
   const salt = bcrypt.genSaltSync(10);
-  const passwordHash = bcrypt.hashSync(trimmedPass, salt);
+  const passwordHash = bcrypt.hashSync(plainPassword, salt);
 
   const newStudent: UserAccount = {
-    id: `usr_stu_${Date.now()}`,
-    name: trimmedName,
-    email: trimmedEmail,
-    studentId: trimmedId,
-    batch: trimmedBatch || 'General Batch',
+    id: `usr_std_${normalizedId.toLowerCase().replace(/[^a-z0-9]/g, '')}_${Date.now()}`,
+    name: finalName,
+    email: finalEmail,
+    studentId: normalizedId,
+    batch: finalSubject,
+    subject: finalSubject,
     role: 'student',
     passwordHash,
-    plainPassword: trimmedPass, // Store plain credential for 100% reliable verification
+    plainPassword,
     createdAt: new Date().toISOString(),
     status: 'active',
   };
@@ -511,26 +645,28 @@ export function createStudentAccount(
   users.push(newStudent);
   saveUsers(users);
 
+  // Background sync with Convex cloud database
+  syncUserToDatabase(newStudent);
+
   return {
     success: true,
-    message: `Account created successfully for ${newStudent.name}.`,
+    message: `Student account ${newStudent.studentId} created successfully.`,
     account: newStudent,
   };
 }
 
 /**
- * Suggest next sequential Student ID based on existing students (e.g. STU-2025-003)
+ * Suggest next sequential Student ID strictly in STD-XXX format (e.g. STD-003)
  */
 export function getNextStudentId(): string {
   const users = getAllUsers();
-  let maxSeq = 2; // Baseline from demo accounts STU-2025-001 & STU-2025-002
-  const currentYear = new Date().getFullYear();
+  let maxSeq = 2; // Baseline from demo accounts STD-001 & STD-002
 
   for (const u of users) {
     if (u.studentId) {
-      const match = u.studentId.match(/STU-(\d{4})-(\d+)/i) || u.studentId.match(/STU-(\d+)/i);
+      const match = u.studentId.match(/STD-(\d+)/i) || u.studentId.match(/STU-.*-(\d+)/i) || u.studentId.match(/STU-(\d+)/i);
       if (match) {
-        const parsed = parseInt(match[2] || match[1], 10);
+        const parsed = parseInt(match[1], 10);
         if (!isNaN(parsed) && parsed > maxSeq) {
           maxSeq = parsed;
         }
@@ -539,24 +675,20 @@ export function getNextStudentId(): string {
   }
 
   const nextSeq = maxSeq + 1;
-  const padded = nextSeq < 100 ? String(nextSeq).padStart(3, '0') : String(nextSeq);
-  return `STU-${currentYear}-${padded}`;
+  const padded = String(nextSeq).padStart(3, '0');
+  return `STD-${padded}`;
 }
 
 /**
- * Generate a friendly temporary password for provisioned students
+ * Generate a friendly, clean temporary password for provisioned students
  */
 export function generateSecureTemporaryPassword(): string {
-  const adjectives = ['Alpha', 'Delta', 'Nova', 'Cyber', 'Apex', 'Hyper', 'Swift'];
-  const nouns = ['Student', 'Candidate', 'Portal', 'Learner', 'Scholar', 'Coder'];
-  const symbols = ['@', '#', '!', '$'];
-  
-  const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
-  const noun = nouns[Math.floor(Math.random() * nouns.length)];
+  const words = ['Pass', 'Code', 'Test', 'Exam', 'Study', 'Prep', 'Student'];
+  const symbols = ['@', '#', '!'];
+  const word = words[Math.floor(Math.random() * words.length)];
   const sym = symbols[Math.floor(Math.random() * symbols.length)];
-  const year = new Date().getFullYear();
-  const randomDigits = Math.floor(10 + Math.random() * 90);
-  return `${adj}${noun}${sym}${year}${randomDigits}`;
+  const num = Math.floor(100 + Math.random() * 900);
+  return `${word}${sym}${num}`;
 }
 
 /**

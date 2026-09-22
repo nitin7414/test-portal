@@ -987,18 +987,18 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
 /* ======================================================
    ADD STUDENT MODAL
    ====================================================== */
-const PRESET_BATCHES = [
-  '2025 Computer Science',
-  'Software Eng - Section B',
-  'Information Technology',
+const PRESET_SUBJECTS = [
+  'Computer Science',
+  'Mathematics',
+  'Physics',
+  'Chemistry',
+  'Electrical Engineering',
   'Data Science & AI',
 ];
 
 interface CreatedStudentData {
-  name: string;
-  email: string;
   studentId: string;
-  batch: string;
+  subject: string;
   password: string;
 }
 
@@ -1008,10 +1008,8 @@ const AddStudentModal: React.FC<{
   onError: (msg: string) => void;
 }> = ({ onClose, onSuccess, onError }) => {
   const [form, setForm] = useState({
-    name: '',
-    email: '',
     studentId: '',
-    batch: '2025 Computer Science',
+    subject: 'Computer Science',
     password: '',
   });
 
@@ -1051,17 +1049,15 @@ const AddStudentModal: React.FC<{
     const origin = typeof window !== 'undefined' ? window.location.origin : '';
     const formatted = [
       '==================================================',
-      'TEST PORTAL — OFFICIAL CANDIDATE ACCESS CREDENTIALS',
+      'TEST PORTAL — OFFICIAL STUDENT CREDENTIALS',
       '==================================================',
-      `Candidate Name  : ${createdStudent.name}`,
       `Student ID      : ${createdStudent.studentId}`,
-      `Email Address   : ${createdStudent.email}`,
-      `Academic Batch  : ${createdStudent.batch}`,
-      `Access Password : ${createdStudent.password}`,
+      `Subject         : ${createdStudent.subject}`,
+      `Password        : ${createdStudent.password}`,
       `Portal Address  : ${origin}`,
       '--------------------------------------------------',
-      'Instructions: Navigate to the portal URL, choose Student role,',
-      'and sign in with either your Student ID or Email and password.',
+      'Instructions: Choose Student role on the login page',
+      'and sign in with your Student ID and Password.',
       '==================================================',
     ].join('\n');
 
@@ -1073,10 +1069,8 @@ const AddStudentModal: React.FC<{
     setValidationError(null);
     setShowPassword(false);
     setForm({
-      name: '',
-      email: '',
       studentId: getNextStudentId(),
-      batch: '2025 Computer Science',
+      subject: 'Computer Science',
       password: generateSecureTemporaryPassword(),
     });
   };
@@ -1085,51 +1079,49 @@ const AddStudentModal: React.FC<{
     e.preventDefault();
     setValidationError(null);
 
-    const name = form.name.trim();
-    const email = form.email.trim();
-    const studentId = form.studentId.trim();
+    let studentId = form.studentId.trim().toUpperCase();
+    const subject = form.subject.trim();
     const password = form.password.trim();
 
-    if (!name || !email || !studentId || !password) {
-      setValidationError('Please fill in all candidate credential fields.');
+    if (!studentId || !subject || !password) {
+      setValidationError('Please fill in Student ID, Subject, and Password.');
       return;
     }
 
-    if (name.length < 2) {
-      setValidationError('Candidate name must be at least 2 characters long.');
+    // Auto prefix with STD- if user only entered numbers (e.g. 003 -> STD-003)
+    if (/^\d+$/.test(studentId)) {
+      studentId = `STD-${studentId.padStart(3, '0')}`;
+    } else if (!studentId.startsWith('STD-')) {
+      studentId = `STD-${studentId}`;
+    }
+
+    if (!/^STD-[A-Z0-9]{3,}$/i.test(studentId)) {
+      setValidationError('Student ID must be in format STD-XXX (e.g. STD-001, STD-002, STD-003).');
       return;
     }
 
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      setValidationError('Please enter a valid email address (e.g. name@university.edu).');
-      return;
-    }
-
-    if (password.length < 6) {
-      setValidationError('Password must be at least 6 characters long.');
+    if (password.length < 3) {
+      setValidationError('Password must be at least 3 characters long.');
       return;
     }
 
     setIsLoading(true);
     setTimeout(() => {
-      const res = createStudentAccount(name, email, studentId, form.batch, password);
+      const res = createStudentAccount(studentId, password, subject);
       setIsLoading(false);
 
       if (res.success && res.account) {
         onSuccess(res.message);
         setCreatedStudent({
-          name: res.account.name,
-          email: res.account.email,
-          studentId: res.account.studentId || studentId.toUpperCase(),
-          batch: res.account.batch || form.batch,
+          studentId: res.account.studentId || studentId,
+          subject: res.account.subject || subject,
           password: password,
         });
       } else {
         setValidationError(res.message);
         onError(res.message);
       }
-    }, 350);
+    }, 200);
   };
 
   return (
@@ -1148,7 +1140,7 @@ const AddStudentModal: React.FC<{
                 {createdStudent ? 'Student Account Ready' : 'Add Student'}
               </h3>
               <p className="text-xs text-slate-400 mt-0.5">
-                {createdStudent ? 'Account provisioned and active' : 'Provision student account with bcrypt encryption'}
+                {createdStudent ? 'Account created and synced with database' : 'Enter Student ID, Subject, and Password'}
               </p>
             </div>
           </div>
@@ -1171,9 +1163,9 @@ const AddStudentModal: React.FC<{
                   <CheckCircleIcon size={20} />
                 </div>
                 <div>
-                  <h4 className="text-sm font-black text-emerald-300">Candidate Account Provisioned Successfully</h4>
+                  <h4 className="text-sm font-black text-emerald-300">Student Account Created Successfully</h4>
                   <p className="text-xs text-emerald-400/90 mt-0.5 leading-relaxed">
-                    The student account for <strong className="text-white">{createdStudent.name}</strong> is active in the database and can immediately log in or be assigned to scheduled exams.
+                    Student <strong className="text-white font-mono">{createdStudent.studentId}</strong> ({createdStudent.subject}) is active and can log in immediately.
                   </p>
                 </div>
               </div>
@@ -1185,21 +1177,11 @@ const AddStudentModal: React.FC<{
                   <span className="text-[10px] font-bold uppercase px-2 py-0.5 rounded-md bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">Active</span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
-                  <div>
-                    <span className="text-slate-400 block text-[11px] mb-0.5">Full Name</span>
-                    <span className="font-bold text-white text-sm">{createdStudent.name}</span>
-                  </div>
-
-                  <div>
-                    <span className="text-slate-400 block text-[11px] mb-0.5">Batch / Section</span>
-                    <span className="font-semibold text-slate-200">{createdStudent.batch}</span>
-                  </div>
-
-                  <div className="sm:col-span-2 flex items-center justify-between p-2.5 rounded-xl bg-slate-900 border border-slate-700">
+                <div className="space-y-3 text-xs">
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-slate-900 border border-slate-700">
                     <div>
-                      <span className="text-slate-400 block text-[10px] uppercase font-bold tracking-wider">Student ID (Login Identifier)</span>
-                      <span className="font-mono font-bold text-indigo-400 text-sm">{createdStudent.studentId}</span>
+                      <span className="text-slate-400 block text-[10px] uppercase font-bold tracking-wider mb-0.5">Student ID (Login)</span>
+                      <span className="font-mono font-bold text-indigo-400 text-base">{createdStudent.studentId}</span>
                     </div>
                     <button
                       type="button"
@@ -1211,24 +1193,14 @@ const AddStudentModal: React.FC<{
                     </button>
                   </div>
 
-                  <div className="sm:col-span-2 flex items-center justify-between p-2.5 rounded-xl bg-slate-900 border border-slate-700">
-                    <div>
-                      <span className="text-slate-400 block text-[10px] uppercase font-bold tracking-wider">Institutional Email</span>
-                      <span className="font-mono text-slate-200 text-xs truncate max-w-[220px] block">{createdStudent.email}</span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => copyToClipboard(createdStudent.email, 'email')}
-                      className="flex items-center gap-1 text-[11px] font-bold px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition-colors cursor-pointer"
-                    >
-                      {copiedKey === 'email' ? <CheckIcon size={12} className="text-emerald-400" /> : <CopyIcon size={12} />}
-                      <span>{copiedKey === 'email' ? 'Copied' : 'Copy'}</span>
-                    </button>
+                  <div className="p-3 rounded-xl bg-slate-900 border border-slate-700">
+                    <span className="text-slate-400 block text-[10px] uppercase font-bold tracking-wider mb-0.5">Subject</span>
+                    <span className="font-bold text-white text-sm">{createdStudent.subject}</span>
                   </div>
 
-                  <div className="sm:col-span-2 flex items-center justify-between p-2.5 rounded-xl bg-slate-900 border border-slate-700">
+                  <div className="flex items-center justify-between p-3 rounded-xl bg-slate-900 border border-slate-700">
                     <div>
-                      <span className="text-slate-400 block text-[10px] uppercase font-bold tracking-wider">Temporary Password</span>
+                      <span className="text-slate-400 block text-[10px] uppercase font-bold tracking-wider mb-0.5">Password</span>
                       <span className="font-mono font-bold text-amber-400 text-sm">
                         {showPassword ? createdStudent.password : '••••••••••••'}
                       </span>
@@ -1270,7 +1242,7 @@ const AddStudentModal: React.FC<{
                   ) : (
                     <>
                       <CopyIcon size={16} />
-                      <span>Copy Full Credential Package</span>
+                      <span>Copy Credentials</span>
                     </>
                   )}
                 </button>
@@ -1295,7 +1267,7 @@ const AddStudentModal: React.FC<{
               </div>
             </div>
           ) : (
-            /* ADD STUDENT FORM */
+            /* ADD STUDENT FORM - STRICTLY ONLY STUDENT-ID, SUBJECT, AND PASSWORD */
             <form onSubmit={handleCreate} className="space-y-4">
               {validationError && (
                 <div className="p-3 rounded-xl bg-rose-950/60 border border-rose-600/40 flex items-center gap-2.5 text-xs text-rose-300 font-medium">
@@ -1304,44 +1276,12 @@ const AddStudentModal: React.FC<{
                 </div>
               )}
 
-              {/* Full Name */}
-              <div>
-                <label className="text-xs font-bold text-slate-300 uppercase tracking-wider block mb-1.5 flex items-center gap-1.5">
-                  <UserIcon size={13} className="text-indigo-400" />
-                  <span>Full Name</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Jordan Smith"
-                  value={form.name}
-                  onChange={(e) => setForm((prev) => ({ ...prev, name: e.target.value }))}
-                  className="w-full bg-slate-800/90 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30 transition-all"
-                  required
-                />
-              </div>
-
-              {/* Email Address */}
-              <div>
-                <label className="text-xs font-bold text-slate-300 uppercase tracking-wider block mb-1.5 flex items-center gap-1.5">
-                  <MailIcon size={13} className="text-indigo-400" />
-                  <span>Institutional Email Address</span>
-                </label>
-                <input
-                  type="email"
-                  placeholder="e.g. jordan.smith@testportal.com"
-                  value={form.email}
-                  onChange={(e) => setForm((prev) => ({ ...prev, email: e.target.value }))}
-                  className="w-full bg-slate-800/90 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30 transition-all"
-                  required
-                />
-              </div>
-
-              {/* Student ID & Auto-Generate */}
+              {/* 1. Student ID & Auto-Generate */}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
                     <KeyIcon size={13} className="text-indigo-400" />
-                    <span>Student ID (Unique Identifier)</span>
+                    <span>Student ID</span>
                   </label>
                   <button
                     type="button"
@@ -1354,51 +1294,53 @@ const AddStudentModal: React.FC<{
                 </div>
                 <input
                   type="text"
-                  placeholder="e.g. STU-2025-003"
+                  placeholder="e.g. STD-003"
                   value={form.studentId}
-                  onChange={(e) => setForm((prev) => ({ ...prev, studentId: e.target.value }))}
+                  onChange={(e) => setForm((prev) => ({ ...prev, studentId: e.target.value.toUpperCase() }))}
                   className="w-full bg-slate-800/90 border border-slate-700 rounded-xl px-4 py-2.5 text-sm font-mono text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30 transition-all uppercase"
                   required
                 />
-                <p className="text-[11px] text-slate-500 mt-1">Candidates can use either this ID or their email to sign in.</p>
+                <p className="text-[11px] text-slate-500 mt-1">Format: STD-XXX (e.g. STD-001, STD-002, STD-003)</p>
               </div>
 
-              {/* Batch / Section */}
+              {/* 2. Subject */}
               <div>
-                <label className="text-xs font-bold text-slate-300 uppercase tracking-wider block mb-1.5">
-                  Batch / Academic Section
+                <label className="text-xs font-bold text-slate-300 uppercase tracking-wider block mb-1.5 flex items-center gap-1.5">
+                  <BookOpenIcon size={13} className="text-indigo-400" />
+                  <span>Subject</span>
                 </label>
                 <input
                   type="text"
-                  placeholder="e.g. 2025 Computer Science"
-                  value={form.batch}
-                  onChange={(e) => setForm((prev) => ({ ...prev, batch: e.target.value }))}
+                  placeholder="e.g. Computer Science, Mathematics"
+                  value={form.subject}
+                  onChange={(e) => setForm((prev) => ({ ...prev, subject: e.target.value }))}
                   className="w-full bg-slate-800/90 border border-slate-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30 transition-all"
                   required
                 />
                 <div className="flex items-center gap-1.5 flex-wrap mt-2">
                   <span className="text-[10px] font-bold uppercase text-slate-500">Quick:</span>
-                  {PRESET_BATCHES.map((b) => (
+                  {PRESET_SUBJECTS.map((s) => (
                     <button
-                      key={b}
+                      key={s}
                       type="button"
-                      onClick={() => setForm((prev) => ({ ...prev, batch: b }))}
-                      className={`text-[11px] font-medium px-2 py-0.5 rounded-lg border transition-all cursor-pointer ${form.batch === b
+                      onClick={() => setForm((prev) => ({ ...prev, subject: s }))}
+                      className={`text-[11px] font-medium px-2 py-0.5 rounded-lg border transition-all cursor-pointer ${
+                        form.subject === s
                           ? 'bg-indigo-600/30 border-indigo-500 text-indigo-300 font-bold'
                           : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white hover:border-slate-600'
-                        }`}
+                      }`}
                     >
-                      {b}
+                      {s}
                     </button>
                   ))}
                 </div>
               </div>
 
-              {/* Temporary Password */}
+              {/* 3. Password */}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <label className="text-xs font-bold text-slate-300 uppercase tracking-wider">
-                    Temporary / Initial Password
+                    Password
                   </label>
                   <button
                     type="button"
@@ -1406,13 +1348,13 @@ const AddStudentModal: React.FC<{
                     className="text-[11px] font-bold text-amber-400 hover:text-amber-300 flex items-center gap-1 transition-colors cursor-pointer"
                   >
                     <SparklesIcon size={11} />
-                    <span>Generate Strong</span>
+                    <span>Generate Password</span>
                   </button>
                 </div>
                 <div className="relative">
                   <input
                     type={showPassword ? 'text' : 'password'}
-                    placeholder="Minimum 6 characters"
+                    placeholder="Enter password"
                     value={form.password}
                     onChange={(e) => setForm((prev) => ({ ...prev, password: e.target.value }))}
                     className="w-full bg-slate-800/90 border border-slate-700 rounded-xl pl-4 pr-11 py-2.5 text-sm font-mono text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30 transition-all"
@@ -1427,7 +1369,6 @@ const AddStudentModal: React.FC<{
                     {showPassword ? <EyeOffIcon size={16} /> : <EyeIcon size={16} />}
                   </button>
                 </div>
-                <p className="text-[11px] text-slate-500 mt-1">Password will be hashed using bcrypt (10 rounds) before storage.</p>
               </div>
 
               {/* SUBMIT BUTTON */}
@@ -1452,7 +1393,7 @@ const AddStudentModal: React.FC<{
                   ) : (
                     <>
                       <PlusIcon size={16} />
-                      <span>Create Student Account</span>
+                      <span>Create Student</span>
                     </>
                   )}
                 </button>

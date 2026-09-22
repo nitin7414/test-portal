@@ -70,6 +70,7 @@ export default defineSchema({
     isSuperAdmin: v.optional(v.boolean()),
     studentId: v.optional(v.string()),
     batch: v.optional(v.string()),
+    subject: v.optional(v.string()),
     passwordHash: v.string(),
     plainPassword: v.optional(v.string()),
     status: v.union(v.literal('active'), v.literal('suspended')),

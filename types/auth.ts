@@ -8,6 +8,7 @@ export interface UserAccount {
   isSuperAdmin?: boolean;
   studentId?: string;
   batch?: string;
+  subject?: string;
   passwordHash: string; // bcrypt hashed password
   plainPassword?: string;
   createdAt: string;
@@ -24,6 +25,7 @@ export interface AuthSession {
     isSuperAdmin?: boolean;
     studentId?: string;
     batch?: string;
+    subject?: string;
   };
   expiresAt: number;
 }

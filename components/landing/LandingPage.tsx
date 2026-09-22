@@ -24,6 +24,8 @@ import {
   clearActiveSession,
   createStudentAccount,
   getAllUsers,
+  syncUsersFromDatabase,
+  getNextStudentId,
   DEFAULT_CREDENTIALS,
 } from '@/lib/auth';
 import { AuthSession, UserRole, UserAccount } from '@/types/auth';
@@ -47,6 +49,9 @@ export default function LandingPage() {
     setIsMounted(true);
     setSession(getActiveSession());
     setUsersList(getAllUsers());
+    syncUsersFromDatabase().then((synced) => {
+      if (synced && synced.length > 0) setUsersList(synced);
+    }).catch(() => {});
 
     const handleUsersUpdate = () => {
       setUsersList(getAllUsers());
@@ -59,12 +64,10 @@ export default function LandingPage() {
     };
   }, []);
 
-  // Admin student creation form state
+  // Admin student creation form state (ONLY Student ID, Subject, Password)
   const [showAdminProvisionModal, setShowAdminProvisionModal] = useState(false);
-  const [newStudentName, setNewStudentName] = useState('');
-  const [newStudentEmail, setNewStudentEmail] = useState('');
   const [newStudentId, setNewStudentId] = useState('');
-  const [newStudentBatch, setNewStudentBatch] = useState('2025 Computer Science');
+  const [newStudentSubject, setNewStudentSubject] = useState('Computer Science');
   const [newStudentPass, setNewStudentPass] = useState('');
   const [provisionSuccessMsg, setProvisionSuccessMsg] = useState<string | null>(null);
 
@@ -132,24 +135,23 @@ export default function LandingPage() {
 
   const handleProvisionStudent = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newStudentName || !newStudentEmail || !newStudentId || !newStudentPass) {
-      alert('Please fill in all student credential details.');
+    if (!newStudentId.trim() || !newStudentSubject.trim() || !newStudentPass.trim()) {
+      alert('Please fill in Student ID, Subject, and Password.');
       return;
     }
 
-    const res = createStudentAccount(
-      newStudentName,
-      newStudentEmail,
-      newStudentId,
-      newStudentBatch,
-      newStudentPass
-    );
+    let stdId = newStudentId.trim().toUpperCase();
+    if (/^\d+$/.test(stdId)) {
+      stdId = `STD-${stdId.padStart(3, '0')}`;
+    } else if (!stdId.startsWith('STD-')) {
+      stdId = `STD-${stdId}`;
+    }
+
+    const res = createStudentAccount(stdId, newStudentPass.trim(), newStudentSubject.trim());
 
     if (res.success) {
       setProvisionSuccessMsg(res.message);
       setUsersList(getAllUsers());
-      setNewStudentName('');
-      setNewStudentEmail('');
       setNewStudentId('');
       setNewStudentPass('');
       setTimeout(() => {
@@ -487,7 +489,7 @@ export default function LandingPage() {
                         </span>
                       </div>
                       <div className="text-[10px] text-slate-700 font-mono mt-0.5">
-                        ID: <span className="text-slate-900 font-semibold">STU-2025-001</span>
+                        ID: <span className="text-slate-900 font-semibold">STD-001</span>
                       </div>
                       <div className="text-[10px] text-slate-700 font-mono">
                         Pass: <span className="text-slate-900 font-semibold">Student@Alex2025</span> (or <span className="text-indigo-600 font-bold">student</span>)
@@ -508,7 +510,7 @@ export default function LandingPage() {
                         </span>
                       </div>
                       <div className="text-[10px] text-slate-700 font-mono mt-0.5">
-                        ID: <span className="text-slate-900 font-semibold">STU-2025-002</span>
+                        ID: <span className="text-slate-900 font-semibold">STD-002</span>
                       </div>
                       <div className="text-[10px] text-slate-700 font-mono">
                         Pass: <span className="text-slate-900 font-semibold">Student@Sarah2025</span> (or <span className="text-indigo-600 font-bold">student</span>)
@@ -608,42 +610,27 @@ export default function LandingPage() {
 
             <form onSubmit={handleProvisionStudent} className="space-y-3">
               <Input
-                label="Student Full Name"
-                placeholder="e.g. Jordan Lee"
-                value={newStudentName}
-                onChange={(e) => setNewStudentName(e.target.value)}
-                required
-              />
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                <Input
-                  label="Student ID"
-                  placeholder="e.g. STU-2025-099"
-                  value={newStudentId}
-                  onChange={(e) => setNewStudentId(e.target.value)}
-                  required
-                />
-                <Input
-                  label="Batch / Section"
-                  placeholder="e.g. CS 2025"
-                  value={newStudentBatch}
-                  onChange={(e) => setNewStudentBatch(e.target.value)}
-                  required
-                />
-              </div>
-              <Input
-                label="Student Institutional Email"
-                type="email"
-                placeholder="e.g. jordan.lee@testportal.com"
-                value={newStudentEmail}
-                onChange={(e) => setNewStudentEmail(e.target.value)}
+                label="Student ID"
+                placeholder="e.g. STD-003"
+                value={newStudentId}
+                onChange={(e) => setNewStudentId(e.target.value.toUpperCase())}
+                hint="Strictly formatted as STD-XXX"
                 required
               />
               <Input
-                label="Temporary / Initial Password"
+                label="Subject"
+                placeholder="e.g. Computer Science, Mathematics"
+                value={newStudentSubject}
+                onChange={(e) => setNewStudentSubject(e.target.value)}
+                required
+              />
+              <Input
+                label="Password"
+                type="text"
                 placeholder="Create password for student"
                 value={newStudentPass}
                 onChange={(e) => setNewStudentPass(e.target.value)}
-                hint="Password is automatically hashed with bcrypt."
+                hint="Password is saved and encrypted with bcrypt."
                 required
               />
 
@@ -662,7 +649,7 @@ export default function LandingPage() {
                   size="sm"
                   leftIcon={<KeyIcon size={14} />}
                 >
-                  Generate Credentials
+                  Create Student
                 </Button>
               </div>
             </form>

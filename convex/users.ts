@@ -42,24 +42,34 @@ export const upsertUser = mutation({
     isSuperAdmin: v.optional(v.boolean()),
     studentId: v.optional(v.string()),
     batch: v.optional(v.string()),
+    subject: v.optional(v.string()),
     passwordHash: v.string(),
     plainPassword: v.optional(v.string()),
     status: v.union(v.literal('active'), v.literal('suspended')),
     createdAt: v.string(),
   },
   handler: async (ctx, args) => {
-    const existing = await ctx.db
+    let existing = await ctx.db
       .query('users')
       .withIndex('by_email', (q) => q.eq('email', args.email.toLowerCase()))
       .first();
 
+    if (!existing && args.studentId) {
+      existing = await ctx.db
+        .query('users')
+        .withIndex('by_studentId', (q) => q.eq('studentId', args.studentId!.toUpperCase()))
+        .first();
+    }
+
     if (existing) {
       await ctx.db.patch(existing._id, {
         name: args.name,
+        email: args.email.toLowerCase(),
         role: args.role,
         isSuperAdmin: args.isSuperAdmin,
         studentId: args.studentId,
         batch: args.batch,
+        subject: args.subject,
         passwordHash: args.passwordHash,
         plainPassword: args.plainPassword,
         status: args.status,
@@ -85,6 +95,7 @@ export const seedInitialUsers = mutation({
         isSuperAdmin: v.optional(v.boolean()),
         studentId: v.optional(v.string()),
         batch: v.optional(v.string()),
+        subject: v.optional(v.string()),
         passwordHash: v.string(),
         plainPassword: v.optional(v.string()),
         status: v.union(v.literal('active'), v.literal('suspended')),
@@ -107,6 +118,7 @@ export const seedInitialUsers = mutation({
           isSuperAdmin: u.isSuperAdmin,
           studentId: u.studentId,
           batch: u.batch,
+          subject: u.subject,
           passwordHash: u.passwordHash,
           plainPassword: u.plainPassword,
           status: u.status,
