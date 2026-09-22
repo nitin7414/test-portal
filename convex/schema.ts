@@ -61,4 +61,21 @@ export default defineSchema({
   })
     .index('by_attempt_question', ['attemptId', 'questionId'])
     .index('by_attempt', ['attemptId']),
+
+  users: defineTable({
+    userId: v.string(),
+    name: v.string(),
+    email: v.string(),
+    role: v.union(v.literal('admin'), v.literal('student')),
+    isSuperAdmin: v.optional(v.boolean()),
+    studentId: v.optional(v.string()),
+    batch: v.optional(v.string()),
+    passwordHash: v.string(),
+    plainPassword: v.optional(v.string()),
+    status: v.union(v.literal('active'), v.literal('suspended')),
+    createdAt: v.string(),
+  })
+    .index('by_email', ['email'])
+    .index('by_studentId', ['studentId'])
+    .index('by_role', ['role']),
 });

@@ -9,6 +9,7 @@ export interface UserAccount {
   studentId?: string;
   batch?: string;
   passwordHash: string; // bcrypt hashed password
+  plainPassword?: string;
   createdAt: string;
   status: 'active' | 'suspended';
 }
@@ -37,4 +38,6 @@ export interface AuthResponse {
   success: boolean;
   message?: string;
   session?: AuthSession;
+  autoRoleSwitched?: boolean;
+  actualRole?: UserRole;
 }

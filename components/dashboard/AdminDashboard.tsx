@@ -27,9 +27,9 @@ interface AdminDashboardProps {
 type Tab = 'overview' | 'students' | 'admins' | 'tests' | 'generate' | 'settings';
 
 const STATUS_COLORS: Record<string, string> = {
-  active:    'bg-emerald-100 text-emerald-800 border-emerald-200',
-  upcoming:  'bg-amber-100 text-amber-800 border-amber-200',
-  archived:  'bg-slate-100 text-slate-600 border-slate-200',
+  active: 'bg-emerald-100 text-emerald-800 border-emerald-200',
+  upcoming: 'bg-amber-100 text-amber-800 border-amber-200',
+  archived: 'bg-slate-100 text-slate-600 border-slate-200',
   suspended: 'bg-rose-100 text-rose-800 border-rose-200',
 };
 
@@ -173,7 +173,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
     { id: 'overview', label: 'Overview', mobileLabel: 'Overview', icon: <BarChartIcon size={16} /> },
     { id: 'students', label: 'Students', mobileLabel: 'Students', icon: <UsersIcon size={16} /> },
     ...(isSuperAdmin ? [{ id: 'admins' as Tab, label: 'Admins', mobileLabel: 'Admins', icon: <ShieldIcon size={16} /> }] : []),
-    { id: 'tests',    label: 'Tests',    mobileLabel: 'Tests',    icon: <BookOpenIcon size={16} /> },
+    { id: 'tests', label: 'Tests', mobileLabel: 'Tests', icon: <BookOpenIcon size={16} /> },
     { id: 'generate', label: 'Generate new test', mobileLabel: 'Generate', icon: <UploadIcon size={16} /> },
     { id: 'settings', label: 'Settings', mobileLabel: 'Settings', icon: <SettingsIcon size={16} /> },
   ];
@@ -214,11 +214,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all duration-150 cursor-pointer text-left ${
-                  activeTab === tab.id
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all duration-150 cursor-pointer text-left ${activeTab === tab.id
                     ? 'bg-indigo-600 text-white shadow-md shadow-indigo-900/40'
                     : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-                }`}
+                  }`}
               >
                 {tab.icon}
                 {tab.label}
@@ -324,11 +323,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
                       setActiveTab(tab.id);
                       setMobileMenuOpen(false);
                     }}
-                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all duration-150 cursor-pointer text-left ${
-                      activeTab === tab.id
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-all duration-150 cursor-pointer text-left ${activeTab === tab.id
                         ? 'bg-indigo-600 text-white shadow-md shadow-indigo-900/40'
                         : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-                    }`}
+                      }`}
                   >
                     {tab.icon}
                     {tab.label}
@@ -374,9 +372,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex-1 flex flex-col items-center justify-center gap-1 py-2 text-[10px] font-bold uppercase tracking-wider transition-colors cursor-pointer ${
-                activeTab === tab.id ? 'text-indigo-400' : 'text-slate-500 hover:text-slate-300'
-              }`}
+              className={`flex-1 flex flex-col items-center justify-center gap-1 py-2 text-[10px] font-bold uppercase tracking-wider transition-colors cursor-pointer ${activeTab === tab.id ? 'text-indigo-400' : 'text-slate-500 hover:text-slate-300'
+                }`}
             >
               {tab.icon}
               <span className="truncate max-w-full px-0.5">{tab.mobileLabel || tab.label}</span>
@@ -410,10 +407,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
               {stats && (
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                   {[
-                    { label: 'Total Students', value: stats.totalStudents,     sub: `${stats.activeStudents} active`,    icon: <UsersIcon size={18} className="text-indigo-400" />,  g: 'from-indigo-500/20 to-blue-600/10',   b: 'border-indigo-500/30' },
-                    { label: 'Total Tests',    value: stats.totalTests,        sub: `${stats.activeTests} live`,         icon: <BookOpenIcon size={18} className="text-emerald-400" />, g: 'from-emerald-500/20 to-teal-600/10', b: 'border-emerald-500/30' },
-                    { label: 'Total Attempts', value: stats.totalAttempts,     sub: 'All submissions',                   icon: <ZapIcon size={18} className="text-amber-400" />,     g: 'from-amber-500/20 to-orange-600/10',  b: 'border-amber-500/30' },
-                    { label: 'Avg Score',      value: `${stats.averageScore}%`,sub: `${stats.passRate}% pass rate`,     icon: <AwardIcon size={18} className="text-violet-400" />,  g: 'from-violet-500/20 to-purple-600/10', b: 'border-violet-500/30' },
+                    { label: 'Total Students', value: stats.totalStudents, sub: `${stats.activeStudents} active`, icon: <UsersIcon size={18} className="text-indigo-400" />, g: 'from-indigo-500/20 to-blue-600/10', b: 'border-indigo-500/30' },
+                    { label: 'Total Tests', value: stats.totalTests, sub: `${stats.activeTests} live`, icon: <BookOpenIcon size={18} className="text-emerald-400" />, g: 'from-emerald-500/20 to-teal-600/10', b: 'border-emerald-500/30' },
+                    { label: 'Total Attempts', value: stats.totalAttempts, sub: 'All submissions', icon: <ZapIcon size={18} className="text-amber-400" />, g: 'from-amber-500/20 to-orange-600/10', b: 'border-amber-500/30' },
+                    { label: 'Avg Score', value: `${stats.averageScore}%`, sub: `${stats.passRate}% pass rate`, icon: <AwardIcon size={18} className="text-violet-400" />, g: 'from-violet-500/20 to-purple-600/10', b: 'border-violet-500/30' },
                   ].map((k) => (
                     <div key={k.label} className={`bg-gradient-to-br ${k.g} border ${k.b} rounded-2xl p-5`}>
                       <div className="flex items-center justify-between mb-3">
@@ -432,22 +429,21 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
                 <h2 className="text-sm font-bold uppercase tracking-wider text-slate-400 mb-3">Quick Actions</h2>
                 <div className={`grid grid-cols-1 sm:grid-cols-2 ${isSuperAdmin ? 'lg:grid-cols-4' : 'lg:grid-cols-3'} gap-3`}>
                   {[
-                    { icon: <UsersIcon size={18} />,   label: 'Add Student',   sub: 'Provision candidate account', color: 'indigo',  onClick: () => { setActiveTab('students'); setShowAddStudent(true); } },
+                    { icon: <UsersIcon size={18} />, label: 'Add Student', sub: 'Provision candidate account', color: 'indigo', onClick: () => { setActiveTab('students'); setShowAddStudent(true); } },
                     ...(isSuperAdmin ? [
-                      { icon: <ShieldIcon size={18} />,  label: 'Add Admin',     sub: 'Developer Root Only',         color: 'violet',  onClick: () => { setActiveTab('admins'); setShowAddAdmin(true); } },
+                      { icon: <ShieldIcon size={18} />, label: 'Add Admin', sub: 'Developer Root Only', color: 'violet', onClick: () => { setActiveTab('admins'); setShowAddAdmin(true); } },
                     ] : []),
-                    { icon: <BookOpenIcon size={18} />, label: 'Manage Tests',  sub: 'Configure test settings',     color: 'emerald', onClick: () => setActiveTab('tests') },
-                    { icon: <RefreshIcon size={18} />,  label: 'System Reset',  sub: 'Wipe sessions & restore',     color: 'amber',   onClick: () => setActiveTab('settings') },
+                    { icon: <BookOpenIcon size={18} />, label: 'Manage Tests', sub: 'Configure test settings', color: 'emerald', onClick: () => setActiveTab('tests') },
+                    { icon: <RefreshIcon size={18} />, label: 'System Reset', sub: 'Wipe sessions & restore', color: 'amber', onClick: () => setActiveTab('settings') },
                   ].map((qa) => (
                     <button
                       key={qa.label}
                       onClick={qa.onClick}
-                      className={`group flex items-center gap-4 p-4 rounded-2xl border text-left transition-all cursor-pointer ${
-                        qa.color === 'indigo'  ? 'bg-indigo-600/20 border-indigo-500/30 text-indigo-400 hover:bg-indigo-600/40' :
-                        qa.color === 'violet'  ? 'bg-violet-600/20 border-violet-500/30 text-violet-400 hover:bg-violet-600/40' :
-                        qa.color === 'emerald' ? 'bg-emerald-600/20 border-emerald-500/30 text-emerald-400 hover:bg-emerald-600/40' :
-                                                 'bg-amber-600/20 border-amber-500/30 text-amber-400 hover:bg-amber-600/40'
-                      }`}
+                      className={`group flex items-center gap-4 p-4 rounded-2xl border text-left transition-all cursor-pointer ${qa.color === 'indigo' ? 'bg-indigo-600/20 border-indigo-500/30 text-indigo-400 hover:bg-indigo-600/40' :
+                          qa.color === 'violet' ? 'bg-violet-600/20 border-violet-500/30 text-violet-400 hover:bg-violet-600/40' :
+                            qa.color === 'emerald' ? 'bg-emerald-600/20 border-emerald-500/30 text-emerald-400 hover:bg-emerald-600/40' :
+                              'bg-amber-600/20 border-amber-500/30 text-amber-400 hover:bg-amber-600/40'
+                        }`}
                     >
                       {qa.icon}
                       <div>
@@ -542,11 +538,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
                     <div className="flex items-center gap-2 shrink-0 flex-wrap">
                       <button
                         onClick={() => handleToggleStatus(s.id)}
-                        className={`text-xs font-bold px-3 py-1.5 rounded-lg border transition-all cursor-pointer ${
-                          s.status === 'active'
+                        className={`text-xs font-bold px-3 py-1.5 rounded-lg border transition-all cursor-pointer ${s.status === 'active'
                             ? 'bg-rose-950 border-rose-700 text-rose-400 hover:bg-rose-900'
                             : 'bg-emerald-950 border-emerald-700 text-emerald-400 hover:bg-emerald-900'
-                        }`}
+                          }`}
                       >
                         {s.status === 'active' ? 'Suspend' : 'Activate'}
                       </button>
@@ -633,11 +628,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
                         <div className="flex items-center gap-2 shrink-0 flex-wrap">
                           <button
                             onClick={() => handleToggleAdminStatus(a.id)}
-                            className={`text-xs font-bold px-3 py-1.5 rounded-lg border transition-all cursor-pointer ${
-                              a.status === 'active'
+                            className={`text-xs font-bold px-3 py-1.5 rounded-lg border transition-all cursor-pointer ${a.status === 'active'
                                 ? 'bg-rose-950 border-rose-700 text-rose-400 hover:bg-rose-900'
                                 : 'bg-emerald-950 border-emerald-700 text-emerald-400 hover:bg-emerald-900'
-                            }`}
+                              }`}
                           >
                             {a.status === 'active' ? 'Suspend' : 'Activate'}
                           </button>
@@ -831,12 +825,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
                   <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">Portal Information</h3>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
                     {[
-                      { label: 'Admin Account',  value: session.user.email },
-                      { label: 'Students',        value: String(stats.totalStudents) },
-                      { label: 'Active Tests',    value: String(stats.activeTests) },
-                      { label: 'Total Attempts',  value: String(stats.totalAttempts) },
-                      { label: 'Pass Rate',       value: `${stats.passRate}%` },
-                      { label: 'Avg Score',       value: `${stats.averageScore}%` },
+                      { label: 'Admin Account', value: session.user.email },
+                      { label: 'Students', value: String(stats.totalStudents) },
+                      { label: 'Active Tests', value: String(stats.activeTests) },
+                      { label: 'Total Attempts', value: String(stats.totalAttempts) },
+                      { label: 'Pass Rate', value: `${stats.passRate}%` },
+                      { label: 'Avg Score', value: `${stats.averageScore}%` },
                     ].map((item) => (
                       <div key={item.label}>
                         <p className="text-[11px] text-slate-500 font-medium">{item.label}</p>
@@ -880,10 +874,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
                           <span className="text-xs text-slate-400">Are you sure?</span>
                           <button
                             onClick={() => handleSystemAction(sa.key)}
-                            className={`text-xs font-bold px-3 py-1.5 rounded-lg cursor-pointer text-white ${
-                              sa.color === 'amber' ? 'bg-amber-600 hover:bg-amber-500' :
-                              sa.color === 'blue'  ? 'bg-blue-600 hover:bg-blue-500'   : 'bg-rose-600 hover:bg-rose-500'
-                            }`}
+                            className={`text-xs font-bold px-3 py-1.5 rounded-lg cursor-pointer text-white ${sa.color === 'amber' ? 'bg-amber-600 hover:bg-amber-500' :
+                                sa.color === 'blue' ? 'bg-blue-600 hover:bg-blue-500' : 'bg-rose-600 hover:bg-rose-500'
+                              }`}
                           >
                             Yes, Proceed
                           </button>
@@ -897,10 +890,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
                       ) : (
                         <button
                           onClick={() => setResetConfirm(sa.key)}
-                          className={`text-xs font-bold px-3 py-1.5 rounded-lg shrink-0 cursor-pointer text-white ${
-                            sa.color === 'amber' ? 'bg-amber-600 hover:bg-amber-500' :
-                            sa.color === 'blue'  ? 'bg-blue-600 hover:bg-blue-500'   : 'bg-rose-600 hover:bg-rose-500'
-                          }`}
+                          className={`text-xs font-bold px-3 py-1.5 rounded-lg shrink-0 cursor-pointer text-white ${sa.color === 'amber' ? 'bg-amber-600 hover:bg-amber-500' :
+                              sa.color === 'blue' ? 'bg-blue-600 hover:bg-blue-500' : 'bg-rose-600 hover:bg-rose-500'
+                            }`}
                         >
                           {sa.action}
                         </button>
@@ -981,9 +973,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
       {/* TOAST */}
       {toast && (
         <div
-          className={`fixed bottom-6 right-6 z-[9999] flex items-center gap-3 px-5 py-3 rounded-2xl shadow-2xl font-semibold text-sm transition-all duration-300 ${
-            toast.type === 'success' ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'
-          }`}
+          className={`fixed bottom-6 right-6 z-[9999] flex items-center gap-3 px-5 py-3 rounded-2xl shadow-2xl font-semibold text-sm transition-all duration-300 ${toast.type === 'success' ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'
+            }`}
         >
           {toast.type === 'success' ? <CheckCircleIcon size={16} /> : <AlertTriangleIcon size={16} />}
           {toast.msg}
@@ -1144,7 +1135,7 @@ const AddStudentModal: React.FC<{
   return (
     <div className="fixed inset-0 z-[9998] flex items-center justify-center p-4" data-lenis-prevent="true">
       <div className="absolute inset-0 bg-black/75 backdrop-blur-sm" onClick={onClose} />
-      
+
       <div className="relative bg-slate-900 border border-slate-700 rounded-3xl p-6 sm:p-7 w-full max-w-lg shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">
         {/* MODAL HEADER */}
         <div className="flex items-center justify-between pb-4 border-b border-slate-800 mb-5 shrink-0">
@@ -1392,11 +1383,10 @@ const AddStudentModal: React.FC<{
                       key={b}
                       type="button"
                       onClick={() => setForm((prev) => ({ ...prev, batch: b }))}
-                      className={`text-[11px] font-medium px-2 py-0.5 rounded-lg border transition-all cursor-pointer ${
-                        form.batch === b
+                      className={`text-[11px] font-medium px-2 py-0.5 rounded-lg border transition-all cursor-pointer ${form.batch === b
                           ? 'bg-indigo-600/30 border-indigo-500 text-indigo-300 font-bold'
                           : 'bg-slate-800 border-slate-700 text-slate-400 hover:text-white hover:border-slate-600'
-                      }`}
+                        }`}
                     >
                       {b}
                     </button>
@@ -1607,7 +1597,7 @@ const AddAdminModal: React.FC<{
   return (
     <div className="fixed inset-0 z-[9998] flex items-center justify-center p-4" data-lenis-prevent="true">
       <div className="absolute inset-0 bg-black/75 backdrop-blur-sm" onClick={onClose} />
-      
+
       <div className="relative bg-slate-900 border border-slate-700 rounded-3xl p-6 sm:p-7 w-full max-w-lg shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">
         {/* MODAL HEADER */}
         <div className="flex items-center justify-between pb-4 border-b border-slate-800 mb-5 shrink-0">
@@ -2033,17 +2023,15 @@ const ScheduleTestModal: React.FC<ScheduleTestModalProps> = ({ test, students, o
               <button
                 type="button"
                 onClick={() => { setAudience('all'); setValidationError(null); }}
-                className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer ${
-                  audience === 'all'
+                className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer ${audience === 'all'
                     ? 'bg-indigo-600/15 border-indigo-500 ring-1 ring-indigo-500/30'
                     : 'bg-slate-800/60 border-slate-700/80 hover:border-slate-600'
-                }`}
+                  }`}
               >
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-bold text-white">All Students</span>
-                  <span className={`h-4 w-4 rounded-full border-2 flex items-center justify-center ${
-                    audience === 'all' ? 'border-indigo-500 bg-indigo-500' : 'border-slate-600'
-                  }`}>
+                  <span className={`h-4 w-4 rounded-full border-2 flex items-center justify-center ${audience === 'all' ? 'border-indigo-500 bg-indigo-500' : 'border-slate-600'
+                    }`}>
                     {audience === 'all' && <div className="h-1.5 w-1.5 bg-white rounded-full" />}
                   </span>
                 </div>
@@ -2055,17 +2043,15 @@ const ScheduleTestModal: React.FC<ScheduleTestModalProps> = ({ test, students, o
               <button
                 type="button"
                 onClick={() => { setAudience('specific'); setValidationError(null); }}
-                className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer ${
-                  audience === 'specific'
+                className={`p-3.5 rounded-2xl border text-left transition-all cursor-pointer ${audience === 'specific'
                     ? 'bg-indigo-600/15 border-indigo-500 ring-1 ring-indigo-500/30'
                     : 'bg-slate-800/60 border-slate-700/80 hover:border-slate-600'
-                }`}
+                  }`}
               >
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-bold text-white">Specific Students Only</span>
-                  <span className={`h-4 w-4 rounded-full border-2 flex items-center justify-center ${
-                    audience === 'specific' ? 'border-indigo-500 bg-indigo-500' : 'border-slate-600'
-                  }`}>
+                  <span className={`h-4 w-4 rounded-full border-2 flex items-center justify-center ${audience === 'specific' ? 'border-indigo-500 bg-indigo-500' : 'border-slate-600'
+                    }`}>
                     {audience === 'specific' && <div className="h-1.5 w-1.5 bg-white rounded-full" />}
                   </span>
                 </div>
@@ -2136,17 +2122,16 @@ const ScheduleTestModal: React.FC<ScheduleTestModalProps> = ({ test, students, o
                         <div
                           key={stu.id}
                           onClick={() => toggleStudent(stu.id)}
-                          className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer ${
-                            isSelected
+                          className={`flex items-center justify-between p-3 rounded-xl border transition-all cursor-pointer ${isSelected
                               ? 'bg-indigo-950/40 border-indigo-600/70 text-white'
                               : 'bg-slate-900/60 border-slate-800/80 text-slate-300 hover:border-slate-700'
-                          }`}
+                            }`}
                         >
                           <div className="flex items-center gap-3 min-w-0">
                             <input
                               type="checkbox"
                               checked={isSelected}
-                              onChange={() => {}} // handled by parent onClick
+                              onChange={() => { }} // handled by parent onClick
                               className="h-4 w-4 rounded text-indigo-600 bg-slate-800 border-slate-600 focus:ring-indigo-500 cursor-pointer"
                             />
                             <div className="min-w-0">
@@ -2164,9 +2149,8 @@ const ScheduleTestModal: React.FC<ScheduleTestModalProps> = ({ test, students, o
                             </div>
                           </div>
 
-                          <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${
-                            isSelected ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-500'
-                          }`}>
+                          <span className={`text-[10px] font-bold px-2.5 py-0.5 rounded-full ${isSelected ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-500'
+                            }`}>
                             {isSelected ? '✓ Assigned' : 'Excluded'}
                           </span>
                         </div>
