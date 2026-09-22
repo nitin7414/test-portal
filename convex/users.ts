@@ -135,3 +135,70 @@ export const seedInitialUsers = mutation({
     return insertedIds;
   },
 });
+
+export const deleteUser = mutation({
+  args: {
+    userId: v.optional(v.string()),
+    email: v.optional(v.string()),
+    studentId: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    // Developer Administrator is protected and cannot be deleted
+    if (args.email?.toLowerCase() === 'developer@testportal.com' || args.userId === 'usr_admin_dev_001') {
+      return { success: false, message: 'Developer Administrator account cannot be deleted.' };
+    }
+
+    let deletedCount = 0;
+
+    // Delete by userId
+    if (args.userId) {
+      const usersById = await ctx.db
+        .query('users')
+        .filter((q) => q.eq(q.field('userId'), args.userId))
+        .collect();
+      for (const u of usersById) {
+        if (u.userId !== 'usr_admin_dev_001' && u.email.toLowerCase() !== 'developer@testportal.com') {
+          await ctx.db.delete(u._id);
+          deletedCount++;
+        }
+      }
+    }
+
+    // Delete by email
+    if (args.email) {
+      const userByEmail = await ctx.db
+        .query('users')
+        .withIndex('by_email', (q) => q.eq('email', args.email!.toLowerCase()))
+        .first();
+      if (userByEmail && userByEmail.userId !== 'usr_admin_dev_001' && userByEmail.email.toLowerCase() !== 'developer@testportal.com') {
+        await ctx.db.delete(userByEmail._id);
+        deletedCount++;
+      }
+    }
+
+    // Delete by studentId
+    if (args.studentId) {
+      const userByStudentId = await ctx.db
+        .query('users')
+        .withIndex('by_studentId', (q) => q.eq('studentId', args.studentId!.toUpperCase()))
+        .first();
+      if (userByStudentId && userByStudentId.userId !== 'usr_admin_dev_001' && userByStudentId.email.toLowerCase() !== 'developer@testportal.com') {
+        await ctx.db.delete(userByStudentId._id);
+        deletedCount++;
+      }
+
+      // Also clean up any attempts related to this studentId
+      const attempts = await ctx.db
+        .query('attempts')
+        .withIndex('by_student_test')
+        .filter((q) => q.eq(q.field('studentId'), args.studentId))
+        .collect();
+      for (const att of attempts) {
+        await ctx.db.delete(att._id);
+      }
+    }
+
+    return { success: true, deletedCount };
+  },
+});
+

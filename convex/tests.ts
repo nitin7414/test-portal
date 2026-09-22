@@ -98,3 +98,37 @@ export const seedAssessment = mutation({
     return { testId, status: 'seeded', count: args.questions.length };
   },
 });
+
+export const listTests = query({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.db.query('tests').collect();
+  },
+});
+
+export const deleteTest = mutation({
+  args: {
+    testId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const tests = await ctx.db.query('tests').collect();
+    const matching = tests.filter(
+      (t) => t._id.toString() === args.testId || t.title.toLowerCase() === args.testId.toLowerCase()
+    );
+
+    for (const t of matching) {
+      await ctx.db.delete(t._id);
+      // Clean up associated questions
+      const questions = await ctx.db
+        .query('questions')
+        .withIndex('by_test', (q) => q.eq('testId', t._id.toString()))
+        .collect();
+      for (const q of questions) {
+        await ctx.db.delete(q._id);
+      }
+    }
+
+    return { success: true, count: matching.length };
+  },
+});
+

@@ -5,7 +5,7 @@
 
 import { UserAccount } from '@/types/auth';
 import { TestMetadata } from '@/types/exam';
-import { getAllUsers, saveUsers } from '@/lib/auth';
+import { getAllUsers, saveUsers, recordDeletedUser, deleteUserFromDatabase } from '@/lib/auth';
 import { MOCK_TESTS } from '@/lib/mock-tests';
 import { INITIAL_STUDENT_RESULTS } from '@/lib/student-history';
 
@@ -46,9 +46,19 @@ export function toggleStudentStatus(userId: string): UserAccount[] {
 
 /** Permanently delete a student account */
 export function deleteStudent(userId: string): UserAccount[] {
-  const users = getAllUsers().filter((u) => u.id !== userId);
-  saveUsers(users);
-  return users;
+  const users = getAllUsers();
+  const target = users.find((u) => u.id === userId);
+  if (target) {
+    recordDeletedUser(target.id, target.email, target.studentId);
+    deleteUserFromDatabase({
+      userId: target.id,
+      email: target.email,
+      studentId: target.studentId,
+    });
+  }
+  const remaining = users.filter((u) => u.id !== userId);
+  saveUsers(remaining);
+  return remaining;
 }
 
 /* =========================================================================
@@ -71,10 +81,23 @@ export function toggleAdminStatus(userId: string): UserAccount[] {
 /** Permanently delete an administrator account (protects primary developer admin) */
 export function deleteAdmin(userId: string): UserAccount[] {
   if (userId === 'usr_admin_dev_001') return getAllUsers();
-  const users = getAllUsers().filter((u) => u.id !== userId);
-  saveUsers(users);
-  return users;
+  const users = getAllUsers();
+  const target = users.find((u) => u.id === userId);
+  if (target) {
+    if (target.email.toLowerCase() === 'developer@testportal.com' || target.id === 'usr_admin_dev_001') {
+      return users;
+    }
+    recordDeletedUser(target.id, target.email);
+    deleteUserFromDatabase({
+      userId: target.id,
+      email: target.email,
+    });
+  }
+  const remaining = users.filter((u) => u.id !== userId);
+  saveUsers(remaining);
+  return remaining;
 }
+
 
 /* =========================================================================
    TEST MANAGEMENT
@@ -120,7 +143,7 @@ export function createNewTest(newTest: TestMetadata): TestMetadata[] {
   return getAllTests();
 }
 
-/** Delete a custom test */
+/** Delete a test dynamically */
 export function deleteTest(testId: string): TestMetadata[] {
   if (typeof window === 'undefined') return [];
   try {
@@ -129,13 +152,20 @@ export function deleteTest(testId: string): TestMetadata[] {
       const customTests: TestMetadata[] = JSON.parse(customRaw);
       const filtered = customTests.filter((t) => t.id !== testId && !DEMO_TEST_IDS.has(t.id));
       localStorage.setItem(STORAGE_CUSTOM_TESTS_KEY, JSON.stringify(filtered));
-      broadcastTestUpdates();
     }
+    const raw = localStorage.getItem(STORAGE_TESTS_KEY);
+    if (raw) {
+      const overrides: Record<string, Partial<TestMetadata>> = JSON.parse(raw);
+      delete overrides[testId];
+      localStorage.setItem(STORAGE_TESTS_KEY, JSON.stringify(overrides));
+    }
+    broadcastTestUpdates();
   } catch (err) {
     console.error('Failed to delete test:', err);
   }
   return getAllTests();
 }
+
 
 /** Persist a partial test override (e.g. status, durationMinutes) */
 function saveTestOverride(testId: string, patch: Partial<TestMetadata>) {

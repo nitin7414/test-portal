@@ -7,6 +7,7 @@ import { api } from '@/convex/_generated/api';
 const STORAGE_USERS_KEY = 'tp_accounts_v2';
 const STORAGE_LEGACY_USERS_KEY = 'tp_accounts_v1';
 const STORAGE_SESSION_KEY = 'tp_active_session_v2';
+const STORAGE_DELETED_USERS_KEY = 'tp_deleted_users_v2';
 
 const CONVEX_URL = process.env.NEXT_PUBLIC_CONVEX_URL || 'https://formal-hummingbird-972.convex.cloud';
 let convexHttpClient: ConvexHttpClient | null = null;
@@ -20,6 +21,84 @@ function getConvexClient(): ConvexHttpClient | null {
     }
   }
   return convexHttpClient;
+}
+
+/**
+ * Get all deleted user identifiers (user IDs, emails, student IDs) to prevent resurrection
+ */
+export function getDeletedUserIdentifiers(): Set<string> {
+  if (typeof window === 'undefined') return new Set();
+  try {
+    const raw = localStorage.getItem(STORAGE_DELETED_USERS_KEY);
+    if (!raw) return new Set();
+    const arr: string[] = JSON.parse(raw);
+    return new Set(arr.map((s) => s.toLowerCase()));
+  } catch {
+    return new Set();
+  }
+}
+
+/**
+ * Record a deleted user so demo initializers and cloud pull sync never restore them
+ */
+export function recordDeletedUser(userId?: string, email?: string, studentId?: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const set = getDeletedUserIdentifiers();
+    if (userId) set.add(userId.toLowerCase());
+    if (email) set.add(email.toLowerCase());
+    if (studentId) set.add(studentId.toLowerCase());
+    localStorage.setItem(STORAGE_DELETED_USERS_KEY, JSON.stringify(Array.from(set)));
+  } catch (err) {
+    console.warn('Failed to record deleted user:', err);
+  }
+}
+
+/**
+ * Remove deleted record if an account is deliberately re-created
+ */
+export function removeDeletedUserRecord(userId?: string, email?: string, studentId?: string): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const set = getDeletedUserIdentifiers();
+    if (userId) set.delete(userId.toLowerCase());
+    if (email) set.delete(email.toLowerCase());
+    if (studentId) set.delete(studentId.toLowerCase());
+    localStorage.setItem(STORAGE_DELETED_USERS_KEY, JSON.stringify(Array.from(set)));
+  } catch (err) {
+    console.warn('Failed to unrecord deleted user:', err);
+  }
+}
+
+/**
+ * Delete a user account from Convex cloud database and blacklist them locally
+ */
+export async function deleteUserFromDatabase(params: {
+  userId?: string;
+  email?: string;
+  studentId?: string;
+}): Promise<boolean> {
+  // Developer administrator cannot be deleted
+  if (params.email?.toLowerCase() === 'developer@testportal.com' || params.userId === 'usr_admin_dev_001') {
+    return false;
+  }
+
+  // Blacklist immediately locally
+  recordDeletedUser(params.userId, params.email, params.studentId);
+
+  try {
+    const client = getConvexClient();
+    if (!client) return true;
+    await client.mutation(api.users.deleteUser, {
+      userId: params.userId,
+      email: params.email,
+      studentId: params.studentId,
+    });
+    return true;
+  } catch (err) {
+    console.warn('Convex user deletion notice:', err);
+    return false;
+  }
 }
 
 /**
@@ -59,9 +138,26 @@ export async function syncUsersFromDatabase(): Promise<UserAccount[]> {
     const cloudUsers = await client.query(api.users.listUsers);
     if (cloudUsers && cloudUsers.length > 0) {
       const localUsers = getAllUsers();
+      const deletedSet = getDeletedUserIdentifiers();
       let modified = false;
 
       for (const cu of cloudUsers) {
+        // If this user was marked as deleted, ensure they are also purged from cloud and NOT imported
+        const isDeleted =
+          deletedSet.has(cu.userId.toLowerCase()) ||
+          deletedSet.has(cu.email.toLowerCase()) ||
+          (cu.studentId ? deletedSet.has(cu.studentId.toLowerCase()) : false);
+
+        if (isDeleted) {
+          // Asynchronously purge from Convex database so it does not linger in the cloud
+          client.mutation(api.users.deleteUser, {
+            userId: cu.userId,
+            email: cu.email,
+            studentId: cu.studentId,
+          }).catch(() => {});
+          continue;
+        }
+
         const idx = localUsers.findIndex(
           (u) =>
             u.email.toLowerCase() === cu.email.toLowerCase() ||
@@ -103,6 +199,7 @@ export async function syncUsersFromDatabase(): Promise<UserAccount[]> {
   }
   return getAllUsers();
 }
+
 
 // Primary baseline system accounts with verified bcrypt hashes and plain fallback credentials
 export const INITIAL_USERS: UserAccount[] = [
@@ -196,22 +293,36 @@ export function getAllUsers(): UserAccount[] {
   try {
     let stored: UserAccount[] = [];
     const raw = localStorage.getItem(STORAGE_USERS_KEY);
+    const deletedSet = getDeletedUserIdentifiers();
+
     if (raw) {
       try {
         stored = JSON.parse(raw);
       } catch {
         stored = [];
       }
+    } else {
+      // First-time virgin visit: initialize with default baseline accounts
+      stored = INITIAL_USERS.filter(
+        (u) =>
+          !deletedSet.has(u.id.toLowerCase()) &&
+          !deletedSet.has(u.email.toLowerCase()) &&
+          (!u.studentId || !deletedSet.has(u.studentId.toLowerCase()))
+      );
     }
 
-    // Merge any accounts from legacy storage v1
+    // Merge any accounts from legacy storage v1 (if not deleted)
     const legacyRaw = localStorage.getItem(STORAGE_LEGACY_USERS_KEY);
     if (legacyRaw) {
       try {
         const legacyUsers: UserAccount[] = JSON.parse(legacyRaw);
         const existingEmails = new Set(stored.map((u) => u.email.toLowerCase()));
         for (const lu of legacyUsers) {
-          if (!existingEmails.has(lu.email.toLowerCase())) {
+          const isDeleted =
+            deletedSet.has(lu.id.toLowerCase()) ||
+            deletedSet.has(lu.email.toLowerCase()) ||
+            (lu.studentId ? deletedSet.has(lu.studentId.toLowerCase()) : false);
+          if (!isDeleted && !existingEmails.has(lu.email.toLowerCase())) {
             stored.push(lu);
             existingEmails.add(lu.email.toLowerCase());
           }
@@ -221,28 +332,44 @@ export function getAllUsers(): UserAccount[] {
       }
     }
 
-    // Ensure baseline demo accounts are always present and updated with verified credentials
-    let modified = false;
-    for (const initUser of INITIAL_USERS) {
+    // Filter out any accounts that were deleted
+    const preCount = stored.length;
+    stored = stored.filter(
+      (u) =>
+        u.id === 'usr_admin_dev_001' || // Developer Administrator is immune
+        (!deletedSet.has(u.id.toLowerCase()) &&
+          !deletedSet.has(u.email.toLowerCase()) &&
+          (!u.studentId || !deletedSet.has(u.studentId.toLowerCase())))
+    );
+    let modified = stored.length !== preCount;
+
+    // The root Developer Administrator MUST always exist so system can never lock out
+    const devAdminIndex = stored.findIndex((u) => u.id === 'usr_admin_dev_001' || u.email.toLowerCase() === 'developer@testportal.com');
+    if (devAdminIndex < 0) {
+      stored.unshift({ ...INITIAL_USERS[0] });
+      modified = true;
+    } else {
+      // Keep dev credentials up to date
+      stored[devAdminIndex].passwordHash = INITIAL_USERS[0].passwordHash;
+      stored[devAdminIndex].plainPassword = INITIAL_USERS[0].plainPassword;
+      stored[devAdminIndex].status = 'active';
+      stored[devAdminIndex].isSuperAdmin = true;
+    }
+
+    // For any other initial user that is STILL present (i.e. was NOT deleted), ensure hashes are valid
+    for (const initUser of INITIAL_USERS.slice(1)) {
       const idx = stored.findIndex((u) => u.email.toLowerCase() === initUser.email.toLowerCase());
       if (idx >= 0) {
-        // Ensure hashes and plain credentials are up to date
         if (
           stored[idx].passwordHash !== initUser.passwordHash ||
-          stored[idx].plainPassword !== initUser.plainPassword ||
-          stored[idx].status !== 'active'
+          stored[idx].plainPassword !== initUser.plainPassword
         ) {
           stored[idx].passwordHash = initUser.passwordHash;
           stored[idx].plainPassword = initUser.plainPassword;
-          stored[idx].status = 'active';
-          stored[idx].role = initUser.role;
-          if (initUser.studentId) stored[idx].studentId = initUser.studentId;
           modified = true;
         }
-      } else {
-        stored.unshift({ ...initUser });
-        modified = true;
       }
+      // Note: We deliberately do NOT unshift missing demo accounts! Deletions remain permanent.
     }
 
     if (modified || !raw) {
@@ -553,8 +680,8 @@ export function clearActiveSession(): void {
  * persists to localStorage and synchronizes with Convex database.
  */
 export function createStudentAccount(
-  p1: string,
-  p2: string,
+  p1: string | { studentId: string; password: string; subject?: string; name?: string },
+  p2?: string,
   p3: string = 'General Subject',
   p4?: string,
   p5?: string
@@ -562,17 +689,27 @@ export function createStudentAccount(
   let rawStudentId = '';
   let plainPassword = '';
   let subject = '';
+  let studentName = '';
 
-  // Check if called as legacy 5-argument: (name, email, studentId, batch, plainPassword)
-  if (p4 !== undefined && p5 !== undefined) {
+  if (typeof p1 === 'object' && p1 !== null) {
+    rawStudentId = p1.studentId || '';
+    plainPassword = p1.password || '';
+    subject = p1.subject || 'General Subject';
+    studentName = p1.name || '';
+  } else if (p4 !== undefined && p5 !== undefined) {
+    // Legacy 5-argument: (name, email, studentId, batch, plainPassword)
+    studentName = p1.trim();
     rawStudentId = p3.trim();
-    plainPassword = p5.trim();
     subject = p4.trim();
+    plainPassword = p5.trim();
   } else {
-    // New 3-field format: (studentId, plainPassword, subject)
-    rawStudentId = p1.trim();
-    plainPassword = p2.trim();
+    // Standard format: (studentId, plainPassword, subject, name)
+    rawStudentId = (p1 || '').trim();
+    plainPassword = (p2 || '').trim();
     subject = (p3 || 'General Subject').trim();
+    if (p4) {
+      studentName = p4.trim();
+    }
   }
 
   if (!rawStudentId) {
@@ -608,7 +745,7 @@ export function createStudentAccount(
   }
 
   const finalSubject = subject || 'General Subject';
-  const finalName = `Student ${normalizedId}`;
+  const finalName = studentName.trim() || `Student ${normalizedId}`;
   const finalEmail = `${normalizedId.toLowerCase()}@testportal.com`;
 
   const users = getAllUsers();
@@ -642,6 +779,7 @@ export function createStudentAccount(
     status: 'active',
   };
 
+  removeDeletedUserRecord(newStudent.id, newStudent.email, newStudent.studentId);
   users.push(newStudent);
   saveUsers(users);
 
@@ -774,8 +912,12 @@ export function createAdminAccount(
     status: 'active',
   };
 
+  removeDeletedUserRecord(newAdmin.id, newAdmin.email);
   users.push(newAdmin);
   saveUsers(users);
+
+  // Background sync with Convex cloud database
+  syncUserToDatabase(newAdmin);
 
   return {
     success: true,
@@ -783,3 +925,4 @@ export function createAdminAccount(
     account: newAdmin,
   };
 }
+

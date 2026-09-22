@@ -268,6 +268,11 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                 {session.user.name.charAt(0)}
               </div>
               <span className="font-semibold text-slate-200">{session.user.name}</span>
+              {session.user.studentId && (
+                <span className="text-[10px] font-mono font-bold bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 px-1.5 py-0.5 rounded">
+                  {session.user.studentId}
+                </span>
+              )}
             </div>
 
             {onLogout && (
@@ -325,7 +330,14 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
               </div>
               <div className="min-w-0 flex-1">
                 <p className="text-sm font-semibold text-white truncate">{session.user.name}</p>
-                <p className="text-[11px] text-slate-400 truncate">{session.user.email}</p>
+                <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                  {session.user.studentId && (
+                    <span className="text-[10px] font-mono font-bold text-indigo-300 bg-indigo-500/20 px-1.5 py-0.5 rounded border border-indigo-500/30">
+                      {session.user.studentId}
+                    </span>
+                  )}
+                  <p className="text-[11px] text-slate-400 truncate">{session.user.email}</p>
+                </div>
                 {session.user.batch && (
                   <span className="inline-block text-[10px] font-mono text-indigo-300 bg-indigo-500/20 px-1.5 py-0.5 rounded mt-1">
                     {session.user.batch}
@@ -484,8 +496,13 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
                   <span className="text-[11px] font-bold uppercase tracking-widest text-indigo-300/80">Candidate Profile</span>
                   <span className="inline-flex items-center gap-1.5 text-[11px] font-bold bg-indigo-500/20 text-indigo-200 border border-indigo-400/30 px-2.5 py-0.5 rounded-full">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                    Enrolled Candidate
+                    {session.user.name}
                   </span>
+                  {session.user.studentId && (
+                    <span className="text-[11px] font-mono font-bold text-indigo-300 bg-indigo-500/30 px-2 py-0.5 rounded-md border border-indigo-400/40">
+                      ID: {session.user.studentId}
+                    </span>
+                  )}
                   {session.user.batch && (
                     <span className="text-[11px] font-mono text-slate-400 bg-white/10 px-2 py-0.5 rounded-md border border-white/10">
                       {session.user.batch}
