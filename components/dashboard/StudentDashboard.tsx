@@ -8,7 +8,12 @@ import {
   getStudentTestResults,
   formatDuration,
 } from '@/lib/student-history';
-import { getAllTests, isTestVisibleToStudent, formatScheduledDateTime } from '@/lib/admin-utils';
+import {
+  getAllTests,
+  syncTestsFromDatabase,
+  isTestVisibleToStudent,
+  formatScheduledDateTime,
+} from '@/lib/admin-utils';
 import {
   AwardIcon,
   ClockIcon,
@@ -58,6 +63,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
     };
 
     refreshData();
+    syncTestsFromDatabase().then(() => refreshData()).catch(() => {});
     const timer = setTimeout(() => setIsLoaded(true), 150);
 
     window.addEventListener('storage', refreshData);

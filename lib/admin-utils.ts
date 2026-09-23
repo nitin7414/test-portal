@@ -8,11 +8,27 @@ import { TestMetadata } from '@/types/exam';
 import { getAllUsers, saveUsers, recordDeletedUser, deleteUserFromDatabase } from '@/lib/auth';
 import { MOCK_TESTS } from '@/lib/mock-tests';
 import { INITIAL_STUDENT_RESULTS } from '@/lib/student-history';
+import { ConvexHttpClient } from 'convex/browser';
+import { api } from '@/convex/_generated/api';
 
 const STORAGE_RESULTS_KEY = 'tp_student_results_v1';
 const STORAGE_TESTS_KEY   = 'tp_tests_config_v1';
 const STORAGE_CUSTOM_TESTS_KEY = 'tp_custom_tests_v1';
 const STORAGE_EXAM_KEYS   = ['tp_exam_session_', 'tp_answers_'];
+
+const CONVEX_URL = process.env.NEXT_PUBLIC_CONVEX_URL || 'https://formal-hummingbird-972.convex.cloud';
+let convexHttpClient: ConvexHttpClient | null = null;
+
+function getConvexClient(): ConvexHttpClient | null {
+  if (!convexHttpClient && typeof window !== 'undefined' && CONVEX_URL) {
+    try {
+      convexHttpClient = new ConvexHttpClient(CONVEX_URL);
+    } catch (e) {
+      console.warn('ConvexHttpClient init notice in admin-utils:', e);
+    }
+  }
+  return convexHttpClient;
+}
 
 const DEMO_TEST_IDS = new Set([
   'test_se_2025',
@@ -25,6 +41,128 @@ function broadcastTestUpdates(): void {
   if (typeof window !== 'undefined') {
     window.dispatchEvent(new Event('storage'));
     window.dispatchEvent(new CustomEvent('tp_tests_updated'));
+  }
+}
+
+/* =========================================================================
+   CLOUD DATABASE SYNC FOR ASSESSMENTS
+   ========================================================================= */
+
+/**
+ * Push an assessment test to the Convex cloud database
+ */
+export async function syncTestToDatabase(test: TestMetadata): Promise<void> {
+  if (DEMO_TEST_IDS.has(test.id)) return;
+  try {
+    const client = getConvexClient();
+    if (!client) return;
+
+    await client.mutation(api.tests.upsertTest, {
+      testId: test.id,
+      title: test.title,
+      code: test.code,
+      category: test.category,
+      description: test.description,
+      durationMinutes: test.durationMinutes,
+      totalMarks: test.totalMarks,
+      passMarks: test.passMarks,
+      totalQuestions: test.totalQuestions,
+      instructions: test.instructions || [],
+      sections: test.sections || [],
+      status: test.status,
+      scheduledDate: test.scheduledDate,
+      scheduledTime: test.scheduledTime,
+      targetAudience: test.targetAudience,
+      assignedStudentIds: test.assignedStudentIds,
+      createdAt: test.createdAt || new Date().toISOString(),
+    });
+  } catch (err) {
+    console.warn('Convex test push sync notice:', err);
+  }
+}
+
+/**
+ * Delete an assessment test from the Convex cloud database
+ */
+export async function deleteTestFromDatabase(testId: string): Promise<boolean> {
+  try {
+    const client = getConvexClient();
+    if (!client) return true;
+    await client.mutation(api.tests.deleteTest, { testId });
+    return true;
+  } catch (err) {
+    console.warn('Convex test deletion notice:', err);
+    return false;
+  }
+}
+
+/**
+ * Pull all assessment tests from Convex cloud database and synchronize locally.
+ * Also uploads any locally stored tests that have not yet reached the cloud database.
+ */
+export async function syncTestsFromDatabase(): Promise<TestMetadata[]> {
+  if (typeof window === 'undefined') return getAllTests();
+  try {
+    const client = getConvexClient();
+    if (!client) return getAllTests();
+
+    const cloudTests = await client.query(api.tests.listTests);
+    const customRaw = localStorage.getItem(STORAGE_CUSTOM_TESTS_KEY);
+    let customTests: TestMetadata[] = customRaw ? JSON.parse(customRaw) : [];
+    let modified = false;
+
+    // 1. Merge cloud tests into local cache
+    if (cloudTests && cloudTests.length > 0) {
+      for (const ct of cloudTests) {
+        if (DEMO_TEST_IDS.has(ct.testId)) continue;
+        const mappedTest: TestMetadata = {
+          id: ct.testId,
+          title: ct.title,
+          code: ct.code,
+          category: ct.category,
+          description: ct.description,
+          durationMinutes: ct.durationMinutes,
+          totalMarks: ct.totalMarks,
+          passMarks: ct.passMarks,
+          totalQuestions: ct.totalQuestions,
+          instructions: ct.instructions || [],
+          sections: ct.sections || [],
+          status: ct.status,
+          scheduledDate: ct.scheduledDate,
+          scheduledTime: ct.scheduledTime,
+          targetAudience: ct.targetAudience,
+          assignedStudentIds: ct.assignedStudentIds,
+          createdAt: ct.createdAt || new Date().toISOString(),
+        };
+
+        const existingIdx = customTests.findIndex((t) => t.id === ct.testId);
+        if (existingIdx >= 0) {
+          customTests[existingIdx] = mappedTest;
+          modified = true;
+        } else {
+          customTests.unshift(mappedTest);
+          modified = true;
+        }
+      }
+    }
+
+    // 2. Upload any local custom tests to Convex cloud if missing from cloud
+    const cloudTestIds = new Set((cloudTests || []).map((t) => t.testId));
+    for (const lt of customTests) {
+      if (!DEMO_TEST_IDS.has(lt.id) && !cloudTestIds.has(lt.id)) {
+        syncTestToDatabase(lt).catch(() => {});
+      }
+    }
+
+    if (modified) {
+      localStorage.setItem(STORAGE_CUSTOM_TESTS_KEY, JSON.stringify(customTests));
+      broadcastTestUpdates();
+    }
+
+    return getAllTests();
+  } catch (err) {
+    console.warn('Convex tests pull sync notice:', err);
+    return getAllTests();
   }
 }
 
@@ -137,6 +275,11 @@ export function createNewTest(newTest: TestMetadata): TestMetadata[] {
     const updated = [newTest, ...customTests.filter((t) => t.id !== newTest.id && !DEMO_TEST_IDS.has(t.id))];
     localStorage.setItem(STORAGE_CUSTOM_TESTS_KEY, JSON.stringify(updated));
     broadcastTestUpdates();
+
+    // Immediately synchronize newly created test with Convex cloud database
+    syncTestToDatabase(newTest).catch((err) => {
+      console.warn('Convex background test upload notice:', err);
+    });
   } catch (err) {
     console.error('Failed to save new test:', err);
   }
@@ -160,12 +303,16 @@ export function deleteTest(testId: string): TestMetadata[] {
       localStorage.setItem(STORAGE_TESTS_KEY, JSON.stringify(overrides));
     }
     broadcastTestUpdates();
+
+    // Immediately remove from Convex cloud database
+    deleteTestFromDatabase(testId).catch((err) => {
+      console.warn('Convex background test deletion notice:', err);
+    });
   } catch (err) {
     console.error('Failed to delete test:', err);
   }
   return getAllTests();
 }
-
 
 /** Persist a partial test override (e.g. status, durationMinutes) */
 function saveTestOverride(testId: string, patch: Partial<TestMetadata>) {
@@ -175,8 +322,55 @@ function saveTestOverride(testId: string, patch: Partial<TestMetadata>) {
     const overrides: Record<string, Partial<TestMetadata>> = raw ? JSON.parse(raw) : {};
     overrides[testId] = { ...(overrides[testId] || {}), ...patch };
     localStorage.setItem(STORAGE_TESTS_KEY, JSON.stringify(overrides));
+
+    // Also update customTests if present
+    const customRaw = localStorage.getItem(STORAGE_CUSTOM_TESTS_KEY);
+    if (customRaw) {
+      const customTests: TestMetadata[] = JSON.parse(customRaw);
+      const idx = customTests.findIndex((t) => t.id === testId);
+      if (idx >= 0) {
+        customTests[idx] = { ...customTests[idx], ...patch };
+        localStorage.setItem(STORAGE_CUSTOM_TESTS_KEY, JSON.stringify(customTests));
+      }
+    }
+
     broadcastTestUpdates();
-  } catch { /* silent */ }
+
+    // Push update to Convex cloud database
+    const client = getConvexClient();
+    if (client) {
+      if (patch.status) {
+        client
+          .mutation(api.tests.updateTestStatus, { testId, status: patch.status as any })
+          .catch(() => {});
+      }
+      if (patch.durationMinutes) {
+        client
+          .mutation(api.tests.updateTestDuration, { testId, durationMinutes: patch.durationMinutes })
+          .catch(() => {});
+      }
+      if (
+        patch.scheduledDate !== undefined ||
+        patch.scheduledTime !== undefined ||
+        patch.targetAudience !== undefined ||
+        patch.assignedStudentIds !== undefined
+      ) {
+        client
+          .mutation(api.tests.updateTestScheduleAndAccess, {
+            testId,
+            scheduledDate: patch.scheduledDate,
+            scheduledTime: patch.scheduledTime,
+            targetAudience: patch.targetAudience as any,
+            assignedStudentIds: patch.assignedStudentIds,
+            status: patch.status as any,
+            durationMinutes: patch.durationMinutes,
+          })
+          .catch(() => {});
+      }
+    }
+  } catch {
+    /* silent */
+  }
 }
 
 /** Toggle a test's status between 'active', 'upcoming', 'archived' */

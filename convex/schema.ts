@@ -9,13 +9,26 @@ import { v } from 'convex/values';
  */
 export default defineSchema({
   tests: defineTable({
+    testId: v.string(),
     title: v.string(),
-    durationSeconds: v.number(),
-    category: v.optional(v.string()),
-    description: v.optional(v.string()),
-    totalMarks: v.optional(v.number()),
-    passMarks: v.optional(v.number()),
-  }),
+    code: v.string(),
+    category: v.string(),
+    description: v.string(),
+    durationMinutes: v.number(),
+    totalMarks: v.number(),
+    passMarks: v.number(),
+    totalQuestions: v.number(),
+    instructions: v.array(v.string()),
+    sections: v.any(),
+    status: v.union(v.literal('active'), v.literal('upcoming'), v.literal('archived')),
+    scheduledDate: v.optional(v.string()),
+    scheduledTime: v.optional(v.string()),
+    targetAudience: v.optional(v.union(v.literal('all'), v.literal('specific'))),
+    assignedStudentIds: v.optional(v.array(v.string())),
+    createdAt: v.string(),
+  })
+    .index('by_testId', ['testId'])
+    .index('by_status', ['status']),
 
   questions: defineTable({
     testId: v.string(),

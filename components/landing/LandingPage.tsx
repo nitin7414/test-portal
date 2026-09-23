@@ -20,14 +20,15 @@ import { Input } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
 import {
   authenticateUser,
+  authenticateUserAsync,
   getActiveSession,
   clearActiveSession,
   createStudentAccount,
   getAllUsers,
   syncUsersFromDatabase,
   getNextStudentId,
-  DEFAULT_CREDENTIALS,
 } from '@/lib/auth';
+import { syncTestsFromDatabase } from '@/lib/admin-utils';
 import { AuthSession, UserRole, UserAccount } from '@/types/auth';
 import { StudentDashboard } from '@/components/dashboard/StudentDashboard';
 import { AdminDashboard } from '@/components/dashboard/AdminDashboard';
@@ -52,6 +53,7 @@ export default function LandingPage() {
     syncUsersFromDatabase().then((synced) => {
       if (synced && synced.length > 0) setUsersList(synced);
     }).catch(() => {});
+    syncTestsFromDatabase().catch(() => {});
 
     const handleUsersUpdate = () => {
       setUsersList(getAllUsers());
@@ -92,24 +94,14 @@ export default function LandingPage() {
     setPassword('');
   };
 
-  const fillQuickCredentials = (key: 'student' | 'student2' | 'admin' | 'adminDev') => {
-    const cred = DEFAULT_CREDENTIALS[key];
-    if (!cred) return;
-    setActiveRole(cred.role);
-    setIdentifier('identifier' in cred ? cred.identifier : cred.email);
-    setPassword(cred.password);
-    setErrorMsg(null);
-    setSuccessMsg(`Auto-filled credentials for ${cred.label}`);
-  };
-
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
     setSuccessMsg(null);
     setIsLoading(true);
 
-    setTimeout(() => {
-      const res = authenticateUser(identifier, password, activeRole);
+    try {
+      const res = await authenticateUserAsync(identifier, password, activeRole);
       setIsLoading(false);
 
       if (res.success && res.session) {
@@ -122,7 +114,10 @@ export default function LandingPage() {
       } else {
         setErrorMsg(res.message || 'Authentication failed. Please check your credentials.');
       }
-    }, 150);
+    } catch (err: any) {
+      setIsLoading(false);
+      setErrorMsg(err?.message || 'Authentication encountered an error. Please verify your credentials.');
+    }
   };
 
   const handleLogout = () => {
@@ -462,111 +457,9 @@ export default function LandingPage() {
                 </div>
               </form>
 
-              {/* 1-CLICK VERIFIED DEMO ACCESS */}
-              <div className="mt-4 pt-3.5 border-t border-slate-100">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                    Quick 1-Click Access
-                  </span>
-                  <span className="text-[10px] text-indigo-600 font-medium bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-100">
-                    Verified Demo Accounts
-                  </span>
-                </div>
-
-                {activeRole === 'student' ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => fillQuickCredentials('student')}
-                      className="p-2 rounded-xl bg-slate-50 hover:bg-indigo-50/80 border border-slate-200/80 hover:border-indigo-300 text-left transition-all cursor-pointer group"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-slate-900 group-hover:text-indigo-950">
-                          Alex Morgan
-                        </span>
-                        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 font-semibold">
-                          Candidate 1
-                        </span>
-                      </div>
-                      <div className="text-[10px] text-slate-700 font-mono mt-0.5">
-                        ID: <span className="text-slate-900 font-semibold">STD-001</span>
-                      </div>
-                      <div className="text-[10px] text-slate-700 font-mono">
-                        Pass: <span className="text-slate-900 font-semibold">Student@Alex2025</span> (or <span className="text-indigo-600 font-bold">student</span>)
-                      </div>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => fillQuickCredentials('student2')}
-                      className="p-2 rounded-xl bg-slate-50 hover:bg-indigo-50/80 border border-slate-200/80 hover:border-indigo-300 text-left transition-all cursor-pointer group"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-slate-900 group-hover:text-indigo-950">
-                          Sarah Chen
-                        </span>
-                        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-blue-100 text-blue-800 font-semibold">
-                          Candidate 2
-                        </span>
-                      </div>
-                      <div className="text-[10px] text-slate-700 font-mono mt-0.5">
-                        ID: <span className="text-slate-900 font-semibold">STD-002</span>
-                      </div>
-                      <div className="text-[10px] text-slate-700 font-mono">
-                        Pass: <span className="text-slate-900 font-semibold">Student@Sarah2025</span> (or <span className="text-indigo-600 font-bold">student</span>)
-                      </div>
-                    </button>
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    <button
-                      type="button"
-                      onClick={() => fillQuickCredentials('admin')}
-                      className="p-2 rounded-xl bg-slate-50 hover:bg-amber-50/80 border border-slate-200/80 hover:border-amber-300 text-left transition-all cursor-pointer group"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-slate-900 group-hover:text-amber-950">
-                          Primary Admin
-                        </span>
-                        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-semibold">
-                          Admin
-                        </span>
-                      </div>
-                      <div className="text-[10px] text-slate-700 font-mono mt-0.5 truncate">
-                        admin@testportal.com
-                      </div>
-                      <div className="text-[10px] text-slate-700 font-mono">
-                        Pass: <span className="text-slate-900 font-semibold">Admin@Portal2025</span> (or <span className="text-amber-700 font-bold">admin</span>)
-                      </div>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => fillQuickCredentials('adminDev')}
-                      className="p-2 rounded-xl bg-slate-50 hover:bg-indigo-50/80 border border-slate-200/80 hover:border-indigo-300 text-left transition-all cursor-pointer group"
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-xs font-bold text-slate-900 group-hover:text-indigo-950">
-                          Developer Root
-                        </span>
-                        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-800 font-semibold">
-                          SuperAdmin
-                        </span>
-                      </div>
-                      <div className="text-[10px] text-slate-700 font-mono mt-0.5 truncate">
-                        developer@testportal.com
-                      </div>
-                      <div className="text-[10px] text-slate-700 font-mono">
-                        Pass: <span className="text-slate-900 font-semibold">DevAdmin@2025!Portal</span>
-                      </div>
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-center gap-1.5 text-[11px] text-slate-700 font-medium">
+              <div className="mt-4 pt-3.5 border-t border-slate-100 flex items-center justify-center gap-1.5 text-[11px] text-slate-500 font-medium">
                 <LockIcon size={12} className="text-slate-400" />
-                <span>Encrypted access · Sign in with institutional credentials or 1-click presets</span>
+                <span>Encrypted access · Sign in with institutional credentials</span>
               </div>
             </div>
           </div>

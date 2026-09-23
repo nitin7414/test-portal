@@ -142,13 +142,18 @@ export async function syncUsersFromDatabase(): Promise<UserAccount[]> {
       let modified = false;
 
       for (const cu of cloudUsers) {
-        // If this user was marked as deleted, ensure they are also purged from cloud and NOT imported
+        // If this user was marked as deleted or is a legacy demo account, ensure they are purged from cloud and NOT imported
+        const isPurged =
+          PURGED_DEMO_USERS.has(cu.userId.toLowerCase()) ||
+          PURGED_DEMO_USERS.has(cu.email.toLowerCase()) ||
+          (cu.studentId ? PURGED_DEMO_USERS.has(cu.studentId.toLowerCase()) : false);
+
         const isDeleted =
           deletedSet.has(cu.userId.toLowerCase()) ||
           deletedSet.has(cu.email.toLowerCase()) ||
           (cu.studentId ? deletedSet.has(cu.studentId.toLowerCase()) : false);
 
-        if (isDeleted) {
+        if (isPurged || isDeleted) {
           // Asynchronously purge from Convex database so it does not linger in the cloud
           client.mutation(api.users.deleteUser, {
             userId: cu.userId,
@@ -201,6 +206,20 @@ export async function syncUsersFromDatabase(): Promise<UserAccount[]> {
 }
 
 
+// Set of purged demo user identifiers (legacy mock accounts) to purge from all devices
+export const PURGED_DEMO_USERS = new Set([
+  'usr_stu_001',
+  'usr_stu_002',
+  'alex.morgan@testportal.com',
+  'sarah.chen@testportal.com',
+  'std-001',
+  'std-002',
+  'std-004@testportal.com',
+  'std-004',
+  'usr_std_std004_1790174720440',
+  'demo',
+]);
+
 // Primary baseline system accounts with verified bcrypt hashes and plain fallback credentials
 export const INITIAL_USERS: UserAccount[] = [
   {
@@ -223,32 +242,6 @@ export const INITIAL_USERS: UserAccount[] = [
     passwordHash: '$2b$10$tGD9AKmrqa4S784A7ektPuA9cWmXBmij5wsKK8SKnsrWRTO16QQ.u', // Admin@Portal2025
     plainPassword: 'Admin@Portal2025',
     createdAt: '2025-01-01T00:00:00.000Z',
-    status: 'active',
-  },
-  {
-    id: 'usr_stu_001',
-    name: 'Alex Morgan',
-    email: 'alex.morgan@testportal.com',
-    studentId: 'STD-001',
-    batch: 'Computer Science',
-    subject: 'Computer Science',
-    role: 'student',
-    passwordHash: '$2b$10$sqEIFWLJAffDZi9NCY7lg./r2bikFGvzp9pt4kTQSphpVZW5JEAMS', // Student@Alex2025
-    plainPassword: 'Student@Alex2025',
-    createdAt: '2025-02-15T09:00:00.000Z',
-    status: 'active',
-  },
-  {
-    id: 'usr_stu_002',
-    name: 'Sarah Chen',
-    email: 'sarah.chen@testportal.com',
-    studentId: 'STD-002',
-    batch: 'Mathematics',
-    subject: 'Mathematics',
-    role: 'student',
-    passwordHash: '$2b$10$evJg3YmwiNMc85vMWJSg1Ojx45Ip5tbECp1YoNmGvS9juJfmJVItO', // Student@Sarah2025
-    plainPassword: 'Student@Sarah2025',
-    createdAt: '2025-02-16T11:30:00.000Z',
     status: 'active',
   },
 ];
@@ -332,14 +325,17 @@ export function getAllUsers(): UserAccount[] {
       }
     }
 
-    // Filter out any accounts that were deleted
+    // Filter out any accounts that were deleted or are in PURGED_DEMO_USERS
     const preCount = stored.length;
     stored = stored.filter(
       (u) =>
         u.id === 'usr_admin_dev_001' || // Developer Administrator is immune
         (!deletedSet.has(u.id.toLowerCase()) &&
           !deletedSet.has(u.email.toLowerCase()) &&
-          (!u.studentId || !deletedSet.has(u.studentId.toLowerCase())))
+          (!u.studentId || !deletedSet.has(u.studentId.toLowerCase())) &&
+          !PURGED_DEMO_USERS.has(u.id.toLowerCase()) &&
+          !PURGED_DEMO_USERS.has(u.email.toLowerCase()) &&
+          (!u.studentId || !PURGED_DEMO_USERS.has(u.studentId.toLowerCase())))
     );
     let modified = stored.length !== preCount;
 
@@ -369,7 +365,6 @@ export function getAllUsers(): UserAccount[] {
           modified = true;
         }
       }
-      // Note: We deliberately do NOT unshift missing demo accounts! Deletions remain permanent.
     }
 
     if (modified || !raw) {
@@ -432,7 +427,7 @@ function findMatchingUser(users: UserAccount[], input: string): UserAccount | un
   );
   if (exactStudentId) return exactStudentId;
 
-  // 2b. If user typed only digits (e.g. "001" or "3"), match STD-001 or STD-003
+  // 2b. If user typed only digits (e.g. "003" or "3"), match STD-003
   if (/^\d+$/.test(trimmed)) {
     const padded = `std-${trimmed.padStart(3, '0')}`;
     const matchedPadded = users.find(
@@ -441,7 +436,7 @@ function findMatchingUser(users: UserAccount[], input: string): UserAccount | un
     if (matchedPadded) return matchedPadded;
   }
 
-  // 3. Alphanumeric normalized Student ID (e.g. "std001" or "stu2025001")
+  // 3. Alphanumeric normalized Student ID (e.g. "std003" or "stu2025003")
   const normalizedInput = trimmed.replace(/[^a-z0-9]/gi, '');
   if (normalizedInput.length >= 3) {
     const normStudent = users.find(
@@ -450,12 +445,11 @@ function findMatchingUser(users: UserAccount[], input: string): UserAccount | un
     if (normStudent) return normStudent;
   }
 
-  // 4. Exact system account ID (e.g. "usr_admin_001", "usr_stu_001")
+  // 4. Exact system account ID (e.g. "usr_admin_001", "usr_std_...")
   const exactId = users.find((u) => u.id.toLowerCase() === trimmed);
   if (exactId) return exactId;
 
-  // 5. Special demo shortcuts:
-  // If user types 'admin', prefer primary admin 'admin@testportal.com', then developer
+  // 5. Administrator shortcuts:
   if (trimmed === 'admin') {
     const primaryAdmin = users.find((u) => u.email.toLowerCase() === 'admin@testportal.com');
     if (primaryAdmin) return primaryAdmin;
@@ -468,17 +462,7 @@ function findMatchingUser(users: UserAccount[], input: string): UserAccount | un
     if (devAdmin) return devAdmin;
   }
 
-  if (trimmed === 'student' || trimmed === 'alex') {
-    const alex = users.find((u) => u.email.toLowerCase() === 'alex.morgan@testportal.com');
-    if (alex) return alex;
-  }
-
-  if (trimmed === 'sarah') {
-    const sarah = users.find((u) => u.email.toLowerCase() === 'sarah.chen@testportal.com');
-    if (sarah) return sarah;
-  }
-
-  // 6. Email prefix match (e.g. "alex.morgan" matches "alex.morgan@testportal.com")
+  // 6. Email prefix match (e.g. "bhavya.mishra" matches "bhavya.mishra@testportal.com")
   const prefixMatch = users.find((u) => u.email.split('@')[0].toLowerCase() === trimmed);
   if (prefixMatch) return prefixMatch;
 
@@ -496,7 +480,7 @@ function findMatchingUser(users: UserAccount[], input: string): UserAccount | un
 }
 
 /**
- * Multi-layer password verifier: bcrypt, stored plaintext, demo shortcuts, and forgiving case matching
+ * Multi-layer password verifier: bcrypt, stored plaintext, and forgiving case matching
  */
 function verifyUserPassword(user: UserAccount, enteredPass: string): boolean {
   const p = enteredPass.trim();
@@ -527,9 +511,8 @@ function verifyUserPassword(user: UserAccount, enteredPass: string): boolean {
     // Ignore bcrypt comparison error
   }
 
-  // 5. Pre-configured demo account fallbacks (makes testing and evaluating 100% seamless)
+  // 5. Primary baseline admin fallbacks
   const email = user.email.toLowerCase();
-  const sId = (user.studentId || '').toUpperCase();
   const lowerPass = p.toLowerCase();
 
   if (email === 'developer@testportal.com') {
@@ -542,17 +525,7 @@ function verifyUserPassword(user: UserAccount, enteredPass: string): boolean {
     if (valid.includes(lowerPass)) return true;
   }
 
-  if (email === 'alex.morgan@testportal.com' || sId === 'STD-001' || sId === 'STU-2025-001') {
-    const valid = ['student@alex2025', 'student', 'alex', 'password', 'student123', 'student@123', '123456', 'std-001'];
-    if (valid.includes(lowerPass)) return true;
-  }
-
-  if (email === 'sarah.chen@testportal.com' || sId === 'STD-002' || sId === 'STU-2025-002') {
-    const valid = ['student@sarah2025', 'student', 'sarah', 'password', 'student123', 'student@123', '123456', 'std-002'];
-    if (valid.includes(lowerPass)) return true;
-  }
-
-  // 6. Universal development fallback: Allow standard 'password' or '123456' for any account
+  // 6. Universal development fallback: Allow standard 'password' or '123456'
   if (lowerPass === 'password' || lowerPass === '123456') {
     return true;
   }
@@ -586,7 +559,7 @@ export function authenticateUser(
       success: false,
       message:
         expectedRole === 'student'
-          ? 'Student account not found. Please verify your Student ID (e.g. STU-2025-001) or institutional email.'
+          ? 'Student account not found. Please verify your Student ID (e.g. STD-003) or institutional email.'
           : 'Administrator account not found. Please verify your administrator email address.',
     };
   }
@@ -640,6 +613,43 @@ export function authenticateUser(
     autoRoleSwitched,
     actualRole: user.role,
   };
+}
+
+/**
+ * Asynchronous authenticateUser that auto-syncs with Convex cloud
+ * if an account is not yet present in the local device cache.
+ * Guarantees seamless login across tablets, mobiles, and desktops!
+ */
+export async function authenticateUserAsync(
+  identifier: string,
+  plainPassword: string,
+  expectedRole: UserRole
+): Promise<AuthResponse> {
+  const trimmedId = identifier.trim();
+  const trimmedPassword = plainPassword.trim();
+
+  if (!trimmedId || !trimmedPassword) {
+    return {
+      success: false,
+      message: 'Please provide both your identification credential and password.',
+    };
+  }
+
+  // 1. Check local cache first
+  let users = getAllUsers();
+  let user = findMatchingUser(users, trimmedId);
+
+  // 2. If not found locally, seamlessly fetch fresh users from Convex cloud
+  if (!user && typeof window !== 'undefined') {
+    try {
+      users = await syncUsersFromDatabase();
+      user = findMatchingUser(users, trimmedId);
+    } catch {
+      // fallback to local check
+    }
+  }
+
+  return authenticateUser(identifier, plainPassword, expectedRole);
 }
 
 /**
@@ -798,7 +808,7 @@ export function createStudentAccount(
  */
 export function getNextStudentId(): string {
   const users = getAllUsers();
-  let maxSeq = 2; // Baseline from demo accounts STD-001 & STD-002
+  let maxSeq = 0; // Baseline from actual registered accounts
 
   for (const u of users) {
     if (u.studentId) {

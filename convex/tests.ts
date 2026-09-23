@@ -2,103 +2,14 @@ import { v } from 'convex/values';
 import { query, mutation } from './_generated/server';
 
 /**
- * Get assessment metadata by ID
+ * Convex Assessment Engine API
+ * Provides real-time synchronization, persistence, and lifecycle operations
+ * for all uploaded, generated, and scheduled tests across all devices.
  */
-export const getTest = query({
-  args: {
-    testId: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const tests = await ctx.db.query('tests').collect();
-    return tests.find((t) => t._id.toString() === args.testId || t.title.toLowerCase().includes(args.testId.toLowerCase())) || null;
-  },
-});
 
 /**
- * Get all questions for an assessment
+ * List all assessment tests
  */
-export const getQuestions = query({
-  args: {
-    testId: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const questions = await ctx.db
-      .query('questions')
-      .withIndex('by_test', (q) => q.eq('testId', args.testId))
-      .collect();
-
-    // Sort by optional order property
-    return questions.sort((a, b) => (a.order || 0) - (b.order || 0));
-  },
-});
-
-/**
- * Seed assessment questions into Convex if empty
- */
-export const seedAssessment = mutation({
-  args: {
-    title: v.string(),
-    durationSeconds: v.number(),
-    category: v.string(),
-    description: v.string(),
-    totalMarks: v.number(),
-    passMarks: v.number(),
-    questions: v.array(
-      v.object({
-        text: v.string(),
-        codeSnippet: v.optional(v.string()),
-        options: v.array(
-          v.object({
-            id: v.string(),
-            text: v.string(),
-          })
-        ),
-        correctOptionId: v.string(),
-        marks: v.number(),
-        negativeMarks: v.number(),
-        explanation: v.string(),
-        order: v.number(),
-      })
-    ),
-  },
-  handler: async (ctx, args) => {
-    // Check if already seeded
-    const existing = await ctx.db
-      .query('tests')
-      .filter((q) => q.eq(q.field('title'), args.title))
-      .first();
-
-    if (existing) {
-      return { testId: existing._id, status: 'already_exists' };
-    }
-
-    const testId = await ctx.db.insert('tests', {
-      title: args.title,
-      durationSeconds: args.durationSeconds,
-      category: args.category,
-      description: args.description,
-      totalMarks: args.totalMarks,
-      passMarks: args.passMarks,
-    });
-
-    for (const q of args.questions) {
-      await ctx.db.insert('questions', {
-        testId: testId.toString(),
-        text: q.text,
-        codeSnippet: q.codeSnippet,
-        options: q.options,
-        correctOptionId: q.correctOptionId,
-        marks: q.marks,
-        negativeMarks: q.negativeMarks,
-        explanation: q.explanation,
-        order: q.order,
-      });
-    }
-
-    return { testId, status: 'seeded', count: args.questions.length };
-  },
-});
-
 export const listTests = query({
   args: {},
   handler: async (ctx) => {
@@ -106,6 +17,110 @@ export const listTests = query({
   },
 });
 
+/**
+ * Get assessment metadata by ID or testId
+ */
+export const getTest = query({
+  args: {
+    testId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const byTestId = await ctx.db
+      .query('tests')
+      .withIndex('by_testId', (q) => q.eq('testId', args.testId))
+      .first();
+
+    if (byTestId) return byTestId;
+
+    const all = await ctx.db.query('tests').collect();
+    return (
+      all.find(
+        (t) =>
+          t._id.toString() === args.testId ||
+          t.testId === args.testId ||
+          t.code.toUpperCase() === args.testId.toUpperCase() ||
+          t.title.toLowerCase().includes(args.testId.toLowerCase())
+      ) || null
+    );
+  },
+});
+
+/**
+ * Upsert an assessment test (Create or Update)
+ */
+export const upsertTest = mutation({
+  args: {
+    testId: v.string(),
+    title: v.string(),
+    code: v.string(),
+    category: v.string(),
+    description: v.string(),
+    durationMinutes: v.number(),
+    totalMarks: v.number(),
+    passMarks: v.number(),
+    totalQuestions: v.number(),
+    instructions: v.array(v.string()),
+    sections: v.any(),
+    status: v.union(v.literal('active'), v.literal('upcoming'), v.literal('archived')),
+    scheduledDate: v.optional(v.string()),
+    scheduledTime: v.optional(v.string()),
+    targetAudience: v.optional(v.union(v.literal('all'), v.literal('specific'))),
+    assignedStudentIds: v.optional(v.array(v.string())),
+    createdAt: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query('tests')
+      .withIndex('by_testId', (q) => q.eq('testId', args.testId))
+      .first();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, {
+        title: args.title,
+        code: args.code,
+        category: args.category,
+        description: args.description,
+        durationMinutes: args.durationMinutes,
+        totalMarks: args.totalMarks,
+        passMarks: args.passMarks,
+        totalQuestions: args.totalQuestions,
+        instructions: args.instructions,
+        sections: args.sections,
+        status: args.status,
+        scheduledDate: args.scheduledDate,
+        scheduledTime: args.scheduledTime,
+        targetAudience: args.targetAudience,
+        assignedStudentIds: args.assignedStudentIds,
+      });
+      return { id: existing._id, action: 'updated', testId: args.testId };
+    } else {
+      const id = await ctx.db.insert('tests', {
+        testId: args.testId,
+        title: args.title,
+        code: args.code,
+        category: args.category,
+        description: args.description,
+        durationMinutes: args.durationMinutes,
+        totalMarks: args.totalMarks,
+        passMarks: args.passMarks,
+        totalQuestions: args.totalQuestions,
+        instructions: args.instructions,
+        sections: args.sections,
+        status: args.status,
+        scheduledDate: args.scheduledDate,
+        scheduledTime: args.scheduledTime,
+        targetAudience: args.targetAudience,
+        assignedStudentIds: args.assignedStudentIds,
+        createdAt: args.createdAt,
+      });
+      return { id, action: 'inserted', testId: args.testId };
+    }
+  },
+});
+
+/**
+ * Delete an assessment test by testId
+ */
 export const deleteTest = mutation({
   args: {
     testId: v.string(),
@@ -113,22 +128,106 @@ export const deleteTest = mutation({
   handler: async (ctx, args) => {
     const tests = await ctx.db.query('tests').collect();
     const matching = tests.filter(
-      (t) => t._id.toString() === args.testId || t.title.toLowerCase() === args.testId.toLowerCase()
+      (t) =>
+        t.testId === args.testId ||
+        t._id.toString() === args.testId ||
+        t.code.toUpperCase() === args.testId.toUpperCase()
     );
 
+    let deletedCount = 0;
     for (const t of matching) {
       await ctx.db.delete(t._id);
-      // Clean up associated questions
+      deletedCount++;
+
+      // Clean up legacy questions if any were keyed by testId
       const questions = await ctx.db
         .query('questions')
-        .withIndex('by_test', (q) => q.eq('testId', t._id.toString()))
+        .withIndex('by_test', (q) => q.eq('testId', t.testId))
         .collect();
       for (const q of questions) {
         await ctx.db.delete(q._id);
       }
     }
 
-    return { success: true, count: matching.length };
+    return { success: true, count: deletedCount };
   },
 });
 
+/**
+ * Cycle or update test status
+ */
+export const updateTestStatus = mutation({
+  args: {
+    testId: v.string(),
+    status: v.union(v.literal('active'), v.literal('upcoming'), v.literal('archived')),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query('tests')
+      .withIndex('by_testId', (q) => q.eq('testId', args.testId))
+      .first();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, { status: args.status });
+      return { success: true };
+    }
+    return { success: false, message: 'Test not found' };
+  },
+});
+
+/**
+ * Update test duration
+ */
+export const updateTestDuration = mutation({
+  args: {
+    testId: v.string(),
+    durationMinutes: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query('tests')
+      .withIndex('by_testId', (q) => q.eq('testId', args.testId))
+      .first();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, { durationMinutes: args.durationMinutes });
+      return { success: true };
+    }
+    return { success: false, message: 'Test not found' };
+  },
+});
+
+/**
+ * Update scheduling and candidate access configuration
+ */
+export const updateTestScheduleAndAccess = mutation({
+  args: {
+    testId: v.string(),
+    scheduledDate: v.optional(v.string()),
+    scheduledTime: v.optional(v.string()),
+    targetAudience: v.optional(v.union(v.literal('all'), v.literal('specific'))),
+    assignedStudentIds: v.optional(v.array(v.string())),
+    status: v.optional(v.union(v.literal('active'), v.literal('upcoming'), v.literal('archived'))),
+    durationMinutes: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query('tests')
+      .withIndex('by_testId', (q) => q.eq('testId', args.testId))
+      .first();
+
+    if (existing) {
+      const patchData: Record<string, any> = {};
+      if (args.scheduledDate !== undefined) patchData.scheduledDate = args.scheduledDate;
+      if (args.scheduledTime !== undefined) patchData.scheduledTime = args.scheduledTime;
+      if (args.targetAudience !== undefined) patchData.targetAudience = args.targetAudience;
+      if (args.assignedStudentIds !== undefined) patchData.assignedStudentIds = args.assignedStudentIds;
+      if (args.status !== undefined) patchData.status = args.status;
+      if (args.durationMinutes !== undefined) patchData.durationMinutes = args.durationMinutes;
+
+      await ctx.db.patch(existing._id, patchData);
+      return { success: true };
+    }
+    return { success: false, message: 'Test not found' };
+  },
+});

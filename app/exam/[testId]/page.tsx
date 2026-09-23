@@ -3,8 +3,9 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { getActiveSession } from '@/lib/auth';
-import { getAllTests, isTestVisibleToStudent } from '@/lib/admin-utils';
+import { getAllTests, syncTestsFromDatabase, isTestVisibleToStudent } from '@/lib/admin-utils';
 import { AuthSession } from '@/types/auth';
+import { TestMetadata } from '@/types/exam';
 import { ExamEngine } from '@/components/exam/ExamEngine';
 import { Button } from '@/components/ui/Button';
 import { AlertCircleIcon, ChevronLeftIcon } from '@/components/ui/Icons';
@@ -15,6 +16,7 @@ export default function ExamSessionPage() {
   const testId = params?.testId as string;
 
   const [session, setSession] = useState<AuthSession | null>(null);
+  const [tests, setTests] = useState<TestMetadata[]>(() => getAllTests());
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -24,7 +26,18 @@ export default function ExamSessionPage() {
       return;
     }
     setSession(active);
-    setLoading(false);
+
+    // Sync cloud tests immediately so test is resolved across any device
+    syncTestsFromDatabase()
+      .then((synced) => {
+        if (synced && synced.length > 0) {
+          setTests(synced);
+        }
+        setLoading(false);
+      })
+      .catch(() => {
+        setLoading(false);
+      });
   }, [router]);
 
   if (loading) {
@@ -40,9 +53,12 @@ export default function ExamSessionPage() {
     );
   }
 
-  // Find test metadata from active configurations
-  const allTests = getAllTests();
-  const test = allTests.find((t) => t.id === testId);
+  // Find test metadata from active configurations or by code
+  const test = tests.find(
+    (t) =>
+      t.id === testId ||
+      t.code.toUpperCase() === testId.toUpperCase()
+  );
 
   if (!test) {
     return (

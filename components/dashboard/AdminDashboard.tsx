@@ -3,9 +3,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { AuthSession, UserAccount } from '@/types/auth';
 import { TestMetadata } from '@/types/exam';
-import { getAllUsers } from '@/lib/auth';
+import { getAllUsers, syncUsersFromDatabase } from '@/lib/auth';
 import {
   getAllTests,
+  syncTestsFromDatabase,
   cycleTestStatus,
   updateTestDuration,
   resetTestConfigs,
@@ -77,6 +78,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
 
   useEffect(() => {
     refresh();
+    syncTestsFromDatabase().then(() => refresh()).catch(() => {});
+    syncUsersFromDatabase().then(() => refresh()).catch(() => {});
     const timer = setTimeout(() => setIsLoaded(true), 100);
 
     const handleSync = () => {
