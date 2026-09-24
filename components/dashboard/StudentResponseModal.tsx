@@ -283,7 +283,7 @@ const QuestionResponseCard: React.FC<QuestionResponseCardProps> = ({
                 key={opt.id}
                 className={`p-2.5 rounded-xl border text-xs flex items-center justify-between gap-3 ${borderClass}`}
               >
-                <span>{opt.text}</span>
+                <span>{opt.text.replace(/^\s*(?:(?:Option|Opt)\s+)?[\(\[]?[A-Fa-f0-9][\)\].:\-–]\s*/i, '')}</span>
                 {badgeEl}
               </div>
             );

@@ -145,10 +145,17 @@ export const GenerateTestView: React.FC<GenerateTestViewProps> = ({
     let usedFallback = false;
 
     // Check if regex extraction was empty or insufficient
-    // ("insufficient" defined as: zero questions, or any question missing a correctAnswer)
+    // ("insufficient" defined as: zero questions, questions with < 2 options, dummy options, or missing correct answer)
     const isInsufficient =
       res.questions.length === 0 ||
-      res.questions.some((q) => !q.correctOptionKey || !q.correctOptionKey.trim()) ||
+      res.questions.some(
+        (q) =>
+          !q.options ||
+          q.options.length < 2 ||
+          q.options.every((o) => o.text.startsWith('Option ')) ||
+          !q.correctOptionKey ||
+          !q.correctOptionKey.trim()
+      ) ||
       res.identifiedAnswersCount < res.questions.length;
 
     // Fallback path: If regex extraction produces zero questions, missing questions,
@@ -218,6 +225,42 @@ export const GenerateTestView: React.FC<GenerateTestViewProps> = ({
     setRawText(SAMPLE_PAPER_TEXT);
     processExtractedText(SAMPLE_PAPER_TEXT, 'System Architecture & Algorithms Screening');
     showToast('Loaded sample question paper with 5 MCQs and answer key.');
+  };
+
+  // Dedicated manual AI parse trigger
+  const triggerAiParse = async () => {
+    if (!rawText.trim()) {
+      showToast('Please upload a PDF or paste text into the raw editor first.', 'error');
+      return;
+    }
+    setIsExtracting(true);
+    try {
+      const response = await fetch('/api/generate-test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rawText }),
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || `Server returned status ${response.status}`);
+      }
+
+      const fallbackResult = await response.json();
+      if (fallbackResult.questions && fallbackResult.questions.length > 0) {
+        setQuestions(fallbackResult.questions);
+        setParseWarnings(fallbackResult.warnings || []);
+        setHasParsed(true);
+        showToast(`AI successfully extracted ${fallbackResult.questions.length} questions!`);
+      } else {
+        showToast('AI parser was unable to detect questions in the text.', 'error');
+      }
+    } catch (err: any) {
+      console.error('Groq LLM extraction failed:', err);
+      showToast(err.message || 'AI parsing failed. Please verify GROQ_API_KEY.', 'error');
+    } finally {
+      setIsExtracting(false);
+    }
   };
 
   // Question editing handlers
@@ -332,7 +375,7 @@ export const GenerateTestView: React.FC<GenerateTestViewProps> = ({
         codeSnippet: q.codeSnippet,
         options: q.options.map((opt) => ({
           id: opt.id,
-          text: `(${opt.key}) ${opt.text}`,
+          text: opt.text.trim(),
         })),
         marks: marksPerQuestion,
         negativeMarks: negativeMarks,
@@ -495,17 +538,29 @@ export const GenerateTestView: React.FC<GenerateTestViewProps> = ({
               placeholder="Paste question paper text here if you prefer manual input..."
               className="w-full bg-slate-950 font-mono text-xs text-slate-300 p-4 rounded-xl border border-slate-800 focus:outline-none focus:border-indigo-500"
             />
-            <button
-              type="button"
-              disabled={isExtracting}
-              onClick={() => processExtractedText(rawText, 'Custom Question Paper')}
-              className="text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 px-4 py-2 rounded-xl transition-all cursor-pointer flex items-center gap-2"
-            >
-              {isExtracting && (
-                <div className="h-3.5 w-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              )}
-              {isExtracting ? 'Parsing...' : 'Reparse Raw Text'}
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                disabled={isExtracting}
+                onClick={() => processExtractedText(rawText, 'Custom Question Paper')}
+                className="text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 px-4 py-2 rounded-xl transition-all cursor-pointer flex items-center gap-2"
+              >
+                {isExtracting && (
+                  <div className="h-3.5 w-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                )}
+                {isExtracting ? 'Parsing...' : 'Reparse (Fast Regex)'}
+              </button>
+
+              <button
+                type="button"
+                disabled={isExtracting}
+                onClick={triggerAiParse}
+                className="text-xs font-bold text-amber-200 bg-amber-950/70 hover:bg-amber-900 border border-amber-800 disabled:opacity-50 px-4 py-2 rounded-xl transition-all cursor-pointer flex items-center gap-2"
+              >
+                <SparklesIcon size={13} className="text-amber-400" />
+                <span>AI Smart Parse (Groq LLM)</span>
+              </button>
+            </div>
           </div>
         )}
       </div>

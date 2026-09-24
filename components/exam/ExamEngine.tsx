@@ -693,7 +693,7 @@ export const ExamEngine: React.FC<ExamEngineProps> = ({
                         {isSelected ? '✓' : optionLetter}
                       </span>
                       <span className="text-xs sm:text-sm font-medium flex-1">
-                        {opt.text}
+                        {opt.text.replace(/^\s*(?:(?:Option|Opt)\s+)?[\(\[]?[A-Fa-f0-9][\)\].:\-–]\s*/i, '')}
                       </span>
                       {isSelected && (
                         <CheckCircleIcon size={18} className="text-white shrink-0" />
@@ -732,7 +732,7 @@ export const ExamEngine: React.FC<ExamEngineProps> = ({
                         {optionLetter}
                       </span>
                       <span className="text-xs sm:text-sm font-medium flex-1">
-                        {opt.text}
+                        {opt.text.replace(/^\s*(?:(?:Option|Opt)\s+)?[\(\[]?[A-Fa-f0-9][\)\].:\-–]\s*/i, '')}
                       </span>
                       {isSelected && (
                         <CheckCircleIcon size={18} className="text-white shrink-0" />

@@ -470,7 +470,7 @@ const QuestionDetailCard: React.FC<QuestionDetailCardProps> = ({
                 key={opt.id}
                 className={`p-3 sm:p-3.5 rounded-xl border text-xs sm:text-sm flex items-center justify-between gap-3 transition-colors ${containerClass}`}
               >
-                <span>{opt.text}</span>
+                <span>{opt.text.replace(/^\s*(?:(?:Option|Opt)\s+)?[\(\[]?[A-Fa-f0-9][\)\].:\-–]\s*/i, '')}</span>
                 {statusTag}
               </div>
             );

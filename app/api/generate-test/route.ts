@@ -1,5 +1,11 @@
 import Groq from 'groq-sdk';
-import { ExtractedOption, ExtractedQuestion, ParseResult } from '@/lib/pdf-parser';
+import {
+  ExtractedOption,
+  ExtractedQuestion,
+  ParseResult,
+  normalizeOptionKey,
+  cleanOptionText,
+} from '@/lib/pdf-parser';
 
 export async function POST(request: Request) {
   try {
@@ -34,30 +40,31 @@ export async function POST(request: Request) {
           role: 'system',
           content:
             'You are an expert exam question paper parser. Your task is to extract all multiple-choice questions (MCQs), their answer choices, correct answers, and explanations from the provided raw question paper text.\n\n' +
+            'CRITICAL STRUCTURAL RULES:\n' +
+            '1. PROMPT PURITY: The "prompt" field must contain ONLY the question statement / problem scenario. NEVER embed or duplicate option choices (e.g. "(A) ... (B) ...") inside the "prompt" text.\n' +
+            '2. CLEAN OPTION TEXT: In the "options" array, each option\'s "text" field must contain ONLY the option text itself, WITHOUT the letter prefix. For example: "Paris", NOT "(B) Paris" and NOT "B. Paris".\n' +
+            '3. OPTION KEYS: "key" must be standardized uppercase letters: "A", "B", "C", "D" (or "E"). If the document uses numbers (1, 2, 3, 4) or roman numerals (i, ii, iii, iv), automatically map them to A, B, C, D.\n' +
+            '4. ANSWER EXTRACTION: Extract the correct option letter ("A", "B", "C", "D") from inline answer markers (e.g. "Ans: B"), bottom answer keys, or solve the question accurately if not explicitly provided.\n' +
+            '5. EXPLANATION: Provide or preserve a clear explanation for why the designated option is correct.\n\n' +
             'You must return a JSON object with this exact schema:\n' +
             '{\n' +
             '  "questions": [\n' +
             '    {\n' +
             '      "questionNumber": 1,\n' +
-            '      "prompt": "Question statement text",\n' +
+            '      "prompt": "Question statement text only",\n' +
             '      "codeSnippet": "optional code snippet or null",\n' +
             '      "options": [\n' +
-            '        { "key": "A", "text": "Option text" },\n' +
-            '        { "key": "B", "text": "Option text" },\n' +
-            '        { "key": "C", "text": "Option text" },\n' +
-            '        { "key": "D", "text": "Option text" }\n' +
+            '        { "key": "A", "text": "Option text without prefix" },\n' +
+            '        { "key": "B", "text": "Option text without prefix" },\n' +
+            '        { "key": "C", "text": "Option text without prefix" },\n' +
+            '        { "key": "D", "text": "Option text without prefix" }\n' +
             '      ],\n' +
             '      "correctOptionKey": "A",\n' +
             '      "explanation": "Detailed explanation for why this option is correct."\n' +
             '    }\n' +
             '  ]\n' +
             '}\n\n' +
-            'Rules:\n' +
-            '- Extract every question present in the text.\n' +
-            '- Each question must have its options extracted with keys (A, B, C, D, etc.).\n' +
-            '- "correctOptionKey" must be the uppercase letter matching one of the options.\n' +
-            '- Check the text for any answer keys (inline like "Ans: B", or bottom table/list). If no answer key is found, deduce the correct answer accurately.\n' +
-            '- Return ONLY the JSON object.',
+            'Return ONLY the JSON object.',
         },
         {
           role: 'user',
@@ -93,11 +100,13 @@ export async function POST(request: Request) {
       const opts: any[] = Array.isArray(q.options) ? q.options : [];
 
       const formattedOptions: ExtractedOption[] = opts.map((opt, oIdx) => {
-        const key = (opt.key || String.fromCharCode(65 + oIdx)).toUpperCase();
+        const key = normalizeOptionKey(opt.key || String.fromCharCode(65 + oIdx));
+        const rawText = opt.text || `Option ${key}`;
+        const clean = cleanOptionText(rawText);
         return {
           id: `opt_${qNum}_${key.toLowerCase()}`,
           key,
-          text: (opt.text || `Option ${key}`).trim(),
+          text: clean || `Option ${key}`,
         };
       });
 
@@ -112,15 +121,18 @@ export async function POST(request: Request) {
         });
       }
 
-      let correctKey = (q.correctOptionKey || '').toString().trim().toUpperCase();
+      let correctKey = normalizeOptionKey((q.correctOptionKey || '').toString());
       if (!formattedOptions.some((o) => o.key === correctKey)) {
         correctKey = formattedOptions[0]?.key || 'A';
       }
 
+      // Ensure prompt doesn't retain accidental inline options at the end
+      let promptText = (q.prompt || `Question ${qNum}`).trim();
+
       return {
         id: `q_parsed_${qNum}_${timestamp}_${idx}`,
         questionNumber: qNum,
-        prompt: (q.prompt || `Question ${qNum}`).trim(),
+        prompt: promptText,
         codeSnippet: q.codeSnippet?.trim() || undefined,
         options: formattedOptions,
         correctOptionKey: correctKey,

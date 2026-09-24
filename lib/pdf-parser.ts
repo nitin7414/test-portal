@@ -1,7 +1,8 @@
 /**
  * PDF & MCQ Parsing Engine
  * Extracts text from uploaded PDF question papers and parses them into structured MCQs.
- * Detects questions, options (A/B/C/D), correct answer keys, and explanations.
+ * Detects questions, options (A/B/C/D, 1/2/3/4, i/ii/iii/iv), correct answer keys, and explanations.
+ * Includes layout-aware PDF sorting and intelligent prompt-option separation.
  */
 
 export interface ExtractedOption {
@@ -30,6 +31,14 @@ export interface ParseResult {
   warnings: string[];
 }
 
+interface PdfTextItem {
+  str: string;
+  x: number;
+  y: number;
+  width?: number;
+  height?: number;
+}
+
 /**
  * Dynamically load PDF.js from reliable CDN in browser
  */
@@ -38,7 +47,6 @@ async function loadPdfJs(): Promise<any> {
   if ((window as any).pdfjsLib) return (window as any).pdfjsLib;
 
   return new Promise((resolve, reject) => {
-    // Check if script element already exists
     const existing = document.querySelector('script[data-pdfjs="true"]');
     if (existing) {
       existing.addEventListener('load', () => resolve((window as any).pdfjsLib));
@@ -68,7 +76,8 @@ async function loadPdfJs(): Promise<any> {
 }
 
 /**
- * Extract raw text from a PDF file using PDF.js
+ * Extract raw text from a PDF file using PDF.js with spatial layout preservation.
+ * Sorts text items top-to-bottom and left-to-right, handling single and multi-column formats.
  */
 export async function extractTextFromPdfFile(file: File): Promise<string> {
   const pdfjs = await loadPdfJs();
@@ -84,33 +93,92 @@ export async function extractTextFromPdfFile(file: File): Promise<string> {
 
   for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
     const page = await pdf.getPage(pageNum);
+    const viewport = page.getViewport({ scale: 1.0 });
     const textContent = await page.getTextContent();
+    const pageWidth = viewport.width || 612;
 
-    let lastY: number | null = null;
-    let pageLines: string[] = [];
-    let currentLine = '';
-
+    const items: PdfTextItem[] = [];
     for (const item of textContent.items) {
-      if ('str' in item) {
-        const y = item.transform ? Math.round(item.transform[5]) : null;
-        // If vertical position changed by more than 4 points, treat as new line
-        if (lastY !== null && y !== null && Math.abs(y - lastY) > 4) {
-          if (currentLine.trim()) {
-            pageLines.push(currentLine.trim());
-          }
-          currentLine = item.str;
-        } else {
-          if (currentLine && !currentLine.endsWith(' ') && !item.str.startsWith(' ')) {
-            currentLine += ' ';
-          }
-          currentLine += item.str;
-        }
-        lastY = y;
+      if ('str' in item && typeof item.str === 'string' && item.str.length > 0) {
+        const x = item.transform ? Math.round(item.transform[4]) : 0;
+        const y = item.transform ? Math.round(item.transform[5]) : 0;
+        items.push({
+          str: item.str,
+          x,
+          y,
+          width: item.width,
+          height: item.height,
+        });
       }
     }
 
-    if (currentLine.trim()) {
-      pageLines.push(currentLine.trim());
+    // Helper to group items by Y-lines and sort left-to-right by X
+    const processItemsToLines = (colItems: PdfTextItem[]): string[] => {
+      // Sort primarily by Y descending (PDF origin is bottom-left; higher Y is higher on page)
+      const sorted = [...colItems].sort((a, b) => {
+        const yDiff = b.y - a.y;
+        if (Math.abs(yDiff) > 4) {
+          return yDiff;
+        }
+        return a.x - b.x;
+      });
+
+      const lines: string[] = [];
+      let currentLineY: number | null = null;
+      let currentLineItems: PdfTextItem[] = [];
+
+      for (const item of sorted) {
+        if (currentLineY === null || Math.abs(item.y - currentLineY) <= 4) {
+          currentLineItems.push(item);
+          if (currentLineY === null) currentLineY = item.y;
+        } else {
+          // Finish line: sort items left-to-right
+          currentLineItems.sort((a, b) => a.x - b.x);
+          let lineStr = '';
+          for (const ci of currentLineItems) {
+            if (lineStr && !lineStr.endsWith(' ') && !ci.str.startsWith(' ')) {
+              lineStr += ' ';
+            }
+            lineStr += ci.str;
+          }
+          if (lineStr.trim()) lines.push(lineStr.trim());
+
+          currentLineItems = [item];
+          currentLineY = item.y;
+        }
+      }
+
+      if (currentLineItems.length > 0) {
+        currentLineItems.sort((a, b) => a.x - b.x);
+        let lineStr = '';
+        for (const ci of currentLineItems) {
+          if (lineStr && !lineStr.endsWith(' ') && !ci.str.startsWith(' ')) {
+            lineStr += ' ';
+          }
+          lineStr += ci.str;
+        }
+        if (lineStr.trim()) lines.push(lineStr.trim());
+      }
+
+      return lines;
+    };
+
+    // Detect 2-column layout (substantial text in both left and right halves)
+    const midX = pageWidth * 0.5;
+    const leftHalf = items.filter((it) => it.x < midX - 20 && it.str.trim());
+    const rightHalf = items.filter((it) => it.x > midX + 20 && it.str.trim());
+    const isTwoColumn =
+      items.length > 25 &&
+      leftHalf.length > items.length * 0.25 &&
+      rightHalf.length > items.length * 0.25;
+
+    let pageLines: string[] = [];
+    if (isTwoColumn) {
+      const col1 = items.filter((it) => it.x <= midX);
+      const col2 = items.filter((it) => it.x > midX);
+      pageLines = [...processItemsToLines(col1), ...processItemsToLines(col2)];
+    } else {
+      pageLines = processItemsToLines(items);
     }
 
     fullText += `\n[--- PAGE ${pageNum} ---]\n` + pageLines.join('\n') + '\n';
@@ -131,33 +199,277 @@ function normalizeText(text: string): string {
     // Normalize unicode quotation marks and spaces
     .replace(/[\u2018\u2019]/g, "'")
     .replace(/[\u201C\u201D]/g, '"')
+    // Normalize unicode hyphens/dashes
+    .replace(/[\u2013\u2014\u2212]/g, '-')
     .replace(/\u00A0/g, ' ');
 }
 
 /**
+ * Maps raw option markers (letters A-F, numbers 1-5, roman numerals i-v)
+ * to standard uppercase 'A' | 'B' | 'C' | 'D' | 'E'
+ */
+export function normalizeOptionKey(rawKey: string): string {
+  const k = rawKey.trim().toUpperCase();
+  if (['A', 'B', 'C', 'D', 'E', 'F'].includes(k)) return k;
+  if (k === '1') return 'A';
+  if (k === '2') return 'B';
+  if (k === '3') return 'C';
+  if (k === '4') return 'D';
+  if (k === '5') return 'E';
+  if (k === 'I') return 'A';
+  if (k === 'II') return 'B';
+  if (k === 'III') return 'C';
+  if (k === 'IV') return 'D';
+  if (k === 'V') return 'E';
+  return k;
+}
+
+/**
+ * Strips leading option badges/prefixes, asterisks, and markers from option text.
+ * e.g. "(A) Apple" -> "Apple"
+ *      "A. Apple" -> "Apple"
+ *      "1) Apple" -> "Apple"
+ *      "Option A: Apple" -> "Apple"
+ *      "* Apple" -> "Apple"
+ */
+export function cleanOptionText(text: string): string {
+  return text
+    .replace(/^\*+|\*+$/g, '')
+    // Strip leading option badges: (A), [A], A., A), A:, A -, 1., 1), (1), (i), Option A:, Opt A.
+    .replace(
+      /^\s*(?:(?:Option|Opt|Choice)\s+)?(?:[\(\[]?(?:[A-Fa-f]|[1-5]|i{1,3}|iv|v)[\)\].:\-–]|[\(\[][A-Fa-f0-9]+[\)\]])\s*/i,
+      ''
+    )
+    .replace(/^\*+|\*+$/g, '')
+    .trim();
+}
+
+/**
  * Extract an external answer key table/list if present at the bottom of the document
- * e.g. "Answer Key: 1. A, 2. C, 3. B" or "Answers: 1 - A, 2 - D"
+ * e.g. "Answer Key: 1. A, 2. C, 3. B" or "Answers: 1 - A, 2 - D" or "1: 2" (mapped to B)
  */
 function extractAnswerKeyMap(text: string): Map<number, string> {
   const map = new Map<number, string>();
 
-  // Look for sections titled "Answer Key", "Answers", "Answer sheet", etc.
-  const keySectionRegex = /(?:answer\s*key|answers|solutions|correct\s*options)\s*[:\n]([\s\S]*)$/i;
+  // Look for sections titled "Answer Key", "Answers", "Answer sheet", "Solutions", etc.
+  const keySectionRegex =
+    /(?:answer\s*key|answers\s*:|solutions\s*:|correct\s*options|answer\s*sheet)\s*[:\n]([\s\S]*)$/i;
   const match = text.match(keySectionRegex);
 
   if (match && match[1]) {
     const keyContent = match[1];
-    // Match patterns like "1. A", "1) B", "1: C", "1 - D", "Q1: A"
-    const entryRegex = /(?:Q\.?\s*)?(\d+)[\s.:)\-–]+([A-Da-d])\b/g;
+    // Match patterns like "1. A", "1) B", "1: C", "1 - D", "Q1: A", "1. (B)", "1. 2"
+    const entryRegex =
+      /(?:Q(?:uestion)?\.?\s*)?(\d+)[\s.:)\-–]+\(?([A-Fa-f1-5]|i{1,3}|iv)\)?\b/gi;
     let entry: RegExpExecArray | null;
     while ((entry = entryRegex.exec(keyContent)) !== null) {
       const qNum = parseInt(entry[1], 10);
-      const ansKey = entry[2].toUpperCase();
+      const ansKey = normalizeOptionKey(entry[2]);
       map.set(qNum, ansKey);
     }
   }
 
   return map;
+}
+
+// Regex to detect the start of a single option at beginning of line:
+// (A), [A], A., A), A:, A -, (1), 1), 1., 1:, (i), i., Option A:, Opt A.
+const singleOptionStartRegex =
+  /^\s*\*?\s*(?:(?:Option|Opt|Choice)\s+)?(?:[\(\[]([A-Fa-f]|[1-5]|i{1,3}|iv|v)[\)\]]|([A-Fa-f]|[1-5]|i{1,3}|iv|v)[\)\].:\-–])\s*\*?\s*(.*)$/i;
+
+// Regex to detect inline answer indicators:
+// e.g. "Ans: (A)", "Answer: B", "Correct Option: C", "Ans - 2", "[Ans: A]"
+const inlineAnswerRegex =
+  /(?:ans(?:wer)?|correct\s*option|key)\s*[:\-–\s]+\(?([A-Fa-f1-5]|i{1,3}|iv)\)?/i;
+
+// Regex to detect explanation indicators:
+// e.g. "Explanation: ...", "Solution: ..."
+const explanationRegex = /^(?:explanation|solution|rationale|hint)\s*[:\-–\s]+(.*)$/i;
+
+interface InlineOptionMatch {
+  key: string;
+  text: string;
+  isMarkedAsterisk: boolean;
+}
+
+interface InlineOptionsParseResult {
+  prefixText: string;
+  options: InlineOptionMatch[];
+}
+
+/**
+ * Parse lines containing multiple inline options (e.g. "(A) Apple  (B) Banana  (C) Carrot  (D) Date")
+ * or "A. Apple  B. Banana  C. Carrot  D. Date"
+ * Returns prefixText (any statement before the first option) and the parsed options.
+ */
+function parseMultipleInlineOptions(line: string): InlineOptionsParseResult | null {
+  const tokenRegex =
+    /(?:^|\s{2,}|\t|\s+)(?:\*|\s)*(?:[\(\[]([A-Fa-f]|[1-5]|i{1,3}|iv|v)[\)\]]|(?:Option\s+)?([A-Fa-f]|[1-5]|i{1,3}|iv|v)[\)\].:\-–])(?:\*|\s)*/gi;
+
+  const matches: { index: number; length: number; rawKey: string }[] = [];
+  let m: RegExpExecArray | null;
+  while ((m = tokenRegex.exec(line)) !== null) {
+    const rawKey = m[1] || m[2];
+    if (rawKey) {
+      matches.push({
+        index: m.index,
+        length: m[0].length,
+        rawKey,
+      });
+    }
+  }
+
+  if (matches.length < 2) return null;
+
+  const normalizedKeys = matches.map((item) => normalizeOptionKey(item.rawKey));
+  const hasValidProgression =
+    normalizedKeys.includes('A') && (normalizedKeys.includes('B') || normalizedKeys.includes('C'));
+
+  if (!hasValidProgression && matches.length < 2) return null;
+
+  const prefixText = line.substring(0, matches[0].index).trim();
+  const options: InlineOptionMatch[] = [];
+
+  for (let i = 0; i < matches.length; i++) {
+    const current = matches[i];
+    const textStart = current.index + current.length;
+    const textEnd = i + 1 < matches.length ? matches[i + 1].index : line.length;
+    const rawText = line.substring(textStart, textEnd).trim();
+    const isMarkedAsterisk =
+      line.substring(current.index, textStart).includes('*') ||
+      rawText.startsWith('*') ||
+      rawText.endsWith('*');
+
+    options.push({
+      key: normalizeOptionKey(current.rawKey),
+      text: cleanOptionText(rawText),
+      isMarkedAsterisk,
+    });
+  }
+
+  return {
+    prefixText,
+    options,
+  };
+}
+
+interface PromptRescueResult {
+  cleanedPrompt: string;
+  options: { key: string; text: string; isMarkedAsterisk?: boolean }[];
+  detectedAnswer?: string;
+  explanation?: string;
+}
+
+/**
+ * Rescue options that were inadvertently accumulated into prompt text.
+ * Scans the prompt, finds where options begin, extracts structured options,
+ * and trims the prompt so the options are NOT displayed as plain text.
+ */
+function rescueOptionsFromPrompt(fullPrompt: string): PromptRescueResult | null {
+  const lines = fullPrompt.split('\n');
+  const rescuedOptions: { key: string; text: string; isMarkedAsterisk?: boolean }[] = [];
+  const promptLines: string[] = [];
+  let foundFirstOption = false;
+  let currentKey: string | null = null;
+  let currentText = '';
+  let currentOptHasAsterisk = false;
+  let detectedAnswer: string | undefined = undefined;
+  let explanation: string | undefined = undefined;
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) {
+      if (!foundFirstOption) promptLines.push('');
+      continue;
+    }
+
+    // 1. Check for inline answer
+    const ansMatch = line.match(inlineAnswerRegex);
+    if (ansMatch) {
+      detectedAnswer = normalizeOptionKey(ansMatch[1]);
+      continue;
+    }
+
+    // 2. Check for explanation
+    const expMatch = line.match(explanationRegex);
+    if (expMatch) {
+      explanation = expMatch[1].trim();
+      continue;
+    }
+
+    // 3. Check for multiple inline options on this line
+    const multi = parseMultipleInlineOptions(line);
+    if (multi && multi.options.length >= 2) {
+      if (currentKey) {
+        rescuedOptions.push({
+          key: currentKey,
+          text: cleanOptionText(currentText),
+          isMarkedAsterisk: currentOptHasAsterisk,
+        });
+        currentKey = null;
+        currentText = '';
+        currentOptHasAsterisk = false;
+      }
+      if (multi.prefixText) {
+        promptLines.push(multi.prefixText);
+      }
+      foundFirstOption = true;
+      for (const opt of multi.options) {
+        rescuedOptions.push(opt);
+        if (opt.isMarkedAsterisk && !detectedAnswer) {
+          detectedAnswer = opt.key;
+        }
+      }
+      continue;
+    }
+
+    // 4. Check for single option start
+    const singleMatch = line.match(singleOptionStartRegex);
+    if (singleMatch) {
+      const rawKey = singleMatch[1] || singleMatch[2];
+      const optKey = normalizeOptionKey(rawKey);
+
+      if (['A', 'B', 'C', 'D', 'E', 'F'].includes(optKey)) {
+        if (currentKey) {
+          rescuedOptions.push({
+            key: currentKey,
+            text: cleanOptionText(currentText),
+            isMarkedAsterisk: currentOptHasAsterisk,
+          });
+        }
+        foundFirstOption = true;
+        currentKey = optKey;
+        currentText = singleMatch[3] || '';
+        currentOptHasAsterisk = line.includes('*');
+        continue;
+      }
+    }
+
+    if (foundFirstOption && currentKey) {
+      currentText += ' ' + line;
+    } else {
+      promptLines.push(line);
+    }
+  }
+
+  if (currentKey) {
+    rescuedOptions.push({
+      key: currentKey,
+      text: cleanOptionText(currentText),
+      isMarkedAsterisk: currentOptHasAsterisk,
+    });
+  }
+
+  if (rescuedOptions.length >= 2) {
+    return {
+      cleanedPrompt: promptLines.join('\n').trim(),
+      options: rescuedOptions,
+      detectedAnswer,
+      explanation,
+    };
+  }
+
+  return null;
 }
 
 /**
@@ -172,7 +484,9 @@ export function parseQuestionsFromRawText(rawText: string): ParseResult {
 
   // Remove the answer key section from the main text body so it doesn't get parsed as questions
   let bodyText = text;
-  const keyHeaderIdx = text.search(/\n\s*(?:answer\s*key|answers\s*:|solutions\s*:)/i);
+  const keyHeaderIdx = text.search(
+    /\n\s*(?:answer\s*key|answers\s*:|solutions\s*:|correct\s*options|answer\s*sheet)/i
+  );
   if (keyHeaderIdx !== -1) {
     bodyText = text.substring(0, keyHeaderIdx);
   }
@@ -181,19 +495,8 @@ export function parseQuestionsFromRawText(rawText: string): ParseResult {
 
   // Regex to detect the start of a question:
   // e.g. "1.", "1)", "Q1.", "Q.1:", "Question 1:", "Question 1.", "1. "
-  const questionStartRegex = /^\s*(?:Q(?:uestion)?\.?\s*)?(\d+)[\s.:)\-–]+\s*(.*)$/i;
-
-  // Regex to detect options:
-  // (A), (B), (C), (D) or A., B., C., D. or A), B), C), D) or [A], [B]
-  const optionPrefixRegex = /^(?:\*|\s)*[\(\[]?([A-Da-d])[\)\].:\-–]\s*(.*)$/;
-
-  // Regex to detect inline answer indicators:
-  // e.g. "Ans: (A)", "Answer: B", "Correct Option: C", "Ans - B", "[Ans: A]"
-  const inlineAnswerRegex = /(?:ans(?:wer)?|correct\s*option|key)\s*[:\-–\s]+\(?([A-Da-d])\)?/i;
-
-  // Regex to detect explanation indicators:
-  // e.g. "Explanation: ...", "Solution: ..."
-  const explanationRegex = /^(?:explanation|solution|hint)\s*[:\-–\s]+(.*)$/i;
+  const questionStartRegex =
+    /^\s*(?:(?:Question|Que|Problem|Q)\.?\s*)?(\d+)[\s.:)\-–]+\s*(.*)$/i;
 
   interface RawBlock {
     qNum: number;
@@ -211,16 +514,51 @@ export function parseQuestionsFromRawText(rawText: string): ParseResult {
     const qMatch = line.match(questionStartRegex);
     if (qMatch) {
       const num = parseInt(qMatch[1], 10);
-      // Ensure it's not an option numbered 1-4 if we already have letters
-      if (!currentBlock || num === currentBlock.qNum + 1 || num > currentBlock.qNum) {
-        if (currentBlock) {
-          rawBlocks.push(currentBlock);
+      const remainder = (qMatch[2] || '').trim();
+      const isExplicitQStart = /^\s*(?:Question|Que|Problem|Q\.?)\s*\d+/i.test(line);
+
+      // Check if this line looks like a question stem
+      const hasQuestionPunctuation = remainder.includes('?') || remainder.includes(':');
+      const startsWithQuestionWord =
+        /^(?:what|which|how|why|when|where|who|whom|whose|consider|calculate|find|explain|define|identify|given|if|in\b|a\b|an\b|the\b)/i.test(
+          remainder
+        );
+      const isQuestionLike =
+        isExplicitQStart || hasQuestionPunctuation || startsWithQuestionWord || remainder.length > 45;
+
+      // Check if current block already has option lines or options detected
+      const currentBlockHasOptions =
+        currentBlock &&
+        currentBlock.lines.some((l) =>
+          /^\s*\*?\s*(?:[\(\[]?[A-Fa-f][\)\].:\-–]|Option\s+[A-Fa-f])/i.test(l)
+        );
+
+      const currentBlockHasNumericOption1 =
+        currentBlock &&
+        currentBlock.lines.some((l) =>
+          /^\s*\*?\s*(?:1[\)\].:\-–]|\(1\)|\[1\])\s+[^\s]/i.test(l)
+        );
+
+      // It's a numbered option ONLY if it is short, non-question, within 1-5, and current block doesn't have letter options
+      const isNumberedOption =
+        !isExplicitQStart &&
+        !isQuestionLike &&
+        num >= 1 &&
+        num <= 5 &&
+        !currentBlockHasOptions &&
+        (currentBlockHasNumericOption1 || num === 1);
+
+      if (!isNumberedOption) {
+        if (!currentBlock || num === currentBlock.qNum + 1 || num > currentBlock.qNum) {
+          if (currentBlock) {
+            rawBlocks.push(currentBlock);
+          }
+          currentBlock = {
+            qNum: num,
+            lines: [remainder],
+          };
+          continue;
         }
-        currentBlock = {
-          qNum: num,
-          lines: [qMatch[2] ? qMatch[2] : ''],
-        };
-        continue;
       }
     }
 
@@ -233,9 +571,10 @@ export function parseQuestionsFromRawText(rawText: string): ParseResult {
     rawBlocks.push(currentBlock);
   }
 
-  // If no questions found using question numbers, try fallback chunking by (A) ... (B)
   if (rawBlocks.length === 0) {
-    warnings.push('Could not detect numbered questions (1., 2., Q1.). Attempting flexible block detection.');
+    warnings.push(
+      'Could not detect standard numbered questions (1., 2., Q1.). Review raw text or use AI extraction.'
+    );
   }
 
   let identifiedAnswersCount = 0;
@@ -251,6 +590,7 @@ export function parseQuestionsFromRawText(rawText: string): ParseResult {
     let parsingOptions = false;
     let currentOptKey: string | null = null;
     let currentOptText = '';
+    let currentOptHasAsterisk = false;
 
     // Check if the answer key map has this question
     if (answerKeyMap.has(qNum)) {
@@ -259,11 +599,14 @@ export function parseQuestionsFromRawText(rawText: string): ParseResult {
 
     const commitCurrentOption = () => {
       if (currentOptKey) {
-        const isMarkedAsterisk = currentOptText.startsWith('*') || currentOptText.endsWith('*');
-        const cleanText = currentOptText.replace(/^\*+|\*+$/g, '').trim();
+        const isMarkedAsterisk =
+          currentOptHasAsterisk ||
+          currentOptText.startsWith('*') ||
+          currentOptText.endsWith('*');
+        const clean = cleanOptionText(currentOptText);
         optionsMap.push({
           key: currentOptKey,
-          text: cleanText,
+          text: clean,
           isMarkedAsterisk,
         });
         if (isMarkedAsterisk && !detectedAnswer) {
@@ -271,6 +614,7 @@ export function parseQuestionsFromRawText(rawText: string): ParseResult {
         }
         currentOptKey = null;
         currentOptText = '';
+        currentOptHasAsterisk = false;
       }
     };
 
@@ -281,7 +625,7 @@ export function parseQuestionsFromRawText(rawText: string): ParseResult {
       // 1. Check for inline answer indicator
       const ansMatch = line.match(inlineAnswerRegex);
       if (ansMatch) {
-        detectedAnswer = ansMatch[1].toUpperCase();
+        detectedAnswer = normalizeOptionKey(ansMatch[1]);
         continue;
       }
 
@@ -293,37 +637,37 @@ export function parseQuestionsFromRawText(rawText: string): ParseResult {
         continue;
       }
 
-      // 3. Check if this line contains multiple inline options (e.g. "(A) Apple  (B) Banana  (C) Carrot  (D) Date")
-      const multiOptionRegex = /[\(\[]([A-Da-d])[\)\].:\-–]\s+([^\(\[]+)/g;
-      const multiMatches = Array.from(line.matchAll(multiOptionRegex));
-
-      if (multiMatches.length >= 2) {
+      // 3. Check for multiple inline options (e.g. "(A) Apple  (B) Banana  (C) Carrot  (D) Date")
+      const multi = parseMultipleInlineOptions(line);
+      if (multi && multi.options.length >= 2) {
         commitCurrentOption();
+        if (multi.prefixText) {
+          promptLines.push(multi.prefixText);
+        }
         parsingOptions = true;
-        for (const m of multiMatches) {
-          const key = m[1].toUpperCase();
-          const text = m[2].trim();
-          const isMarkedAsterisk = text.startsWith('*') || text.endsWith('*');
-          optionsMap.push({
-            key,
-            text: text.replace(/^\*+|\*+$/g, '').trim(),
-            isMarkedAsterisk,
-          });
-          if (isMarkedAsterisk && !detectedAnswer) {
-            detectedAnswer = key;
+        for (const m of multi.options) {
+          optionsMap.push(m);
+          if (m.isMarkedAsterisk && !detectedAnswer) {
+            detectedAnswer = m.key;
           }
         }
         continue;
       }
 
-      // 4. Check for single option start (e.g. "(A) Option text" or "A. Option text")
-      const optMatch = line.match(optionPrefixRegex);
-      if (optMatch && ['A', 'B', 'C', 'D', 'E'].includes(optMatch[1].toUpperCase())) {
-        commitCurrentOption();
-        parsingOptions = true;
-        currentOptKey = optMatch[1].toUpperCase();
-        currentOptText = optMatch[2] ? optMatch[2].trim() : '';
-        continue;
+      // 4. Check for single option start (e.g. "(A) Option text" or "A. Option text" or "1) Option text")
+      const optMatch = line.match(singleOptionStartRegex);
+      if (optMatch) {
+        const rawKey = optMatch[1] || optMatch[2];
+        const normalizedKey = normalizeOptionKey(rawKey);
+
+        if (['A', 'B', 'C', 'D', 'E', 'F'].includes(normalizedKey)) {
+          commitCurrentOption();
+          parsingOptions = true;
+          currentOptKey = normalizedKey;
+          currentOptText = optMatch[3] ? optMatch[3].trim() : '';
+          currentOptHasAsterisk = line.includes('*');
+          continue;
+        }
       }
 
       // If we are currently accumulating an option, append to it
@@ -337,11 +681,23 @@ export function parseQuestionsFromRawText(rawText: string): ParseResult {
 
     commitCurrentOption();
 
-    const prompt = promptLines.join('\n').trim();
+    let prompt = promptLines.join('\n').trim();
 
-    // Ensure we have at least 2 options
-    if (optionsMap.length === 0) {
-      warnings.push(`Question ${qNum} has no standard options detected. Review manually.`);
+    // 5. PROMPT RESCUE SCANNER:
+    // If fewer than 2 options were detected, check if options were trapped inside prompt text
+    if (optionsMap.length < 2 && prompt) {
+      const rescued = rescueOptionsFromPrompt(prompt);
+      if (rescued && rescued.options.length >= 2) {
+        prompt = rescued.cleanedPrompt;
+        optionsMap.length = 0;
+        optionsMap.push(...rescued.options);
+        if (rescued.detectedAnswer && !detectedAnswer) {
+          detectedAnswer = rescued.detectedAnswer;
+        }
+        if (rescued.explanation && !explanation) {
+          explanation = rescued.explanation;
+        }
+      }
     }
 
     // Default to 'A' if no answer was detected anywhere
@@ -354,11 +710,12 @@ export function parseQuestionsFromRawText(rawText: string): ParseResult {
     const formattedOptions: ExtractedOption[] = optionsMap.map((opt) => ({
       id: `opt_${qNum}_${opt.key.toLowerCase()}`,
       key: opt.key,
-      text: opt.text || `Option ${opt.key}`,
+      text: cleanOptionText(opt.text) || `Option ${opt.key}`,
     }));
 
     // If fewer than 4 options were found, ensure at least standard A, B, C, D exist for editing
     if (formattedOptions.length === 0) {
+      warnings.push(`Question ${qNum} has no standard options detected. Review manually.`);
       ['A', 'B', 'C', 'D'].forEach((k) => {
         formattedOptions.push({
           id: `opt_${qNum}_${k.toLowerCase()}`,
@@ -374,7 +731,8 @@ export function parseQuestionsFromRawText(rawText: string): ParseResult {
       prompt: prompt || `Question ${qNum}`,
       options: formattedOptions,
       correctOptionKey: detectedAnswer,
-      explanation: explanation || 'Refer to the assessment reference materials for detailed solution rationale.',
+      explanation:
+        explanation || 'Refer to the assessment reference materials for detailed solution rationale.',
       marks: 4,
       negativeMarks: 1,
     });
