@@ -19,6 +19,7 @@ import {
   ChevronLeftIcon,
 } from '@/components/ui/Icons';
 import { TestBriefingModal } from '@/components/exam/TestBriefingModal';
+import { unpackQuestionOptions } from '@/lib/pdf-parser';
 
 export default function CandidateResponsePage() {
   const params = useParams();
@@ -433,50 +434,53 @@ const QuestionDetailCard: React.FC<QuestionDetailCardProps> = ({
       </p>
 
       {/* Options List */}
-      {question.options && question.options.length > 0 && (
-        <div className="space-y-2 mb-4">
-          {question.options.map((opt) => {
-            const isUserChosen = question.userSelectedOptionIds.includes(opt.id);
-            const isCorrectOption = question.correctOptionIds.includes(opt.id);
+      {question.options && question.options.length > 0 && (() => {
+        const displayOptions = unpackQuestionOptions(question.options, question.questionId);
+        return (
+          <div className="space-y-2 mb-4">
+            {displayOptions.map((opt) => {
+              const isUserChosen = question.userSelectedOptionIds.includes(opt.id);
+              const isCorrectOption = question.correctOptionIds.includes(opt.id);
 
-            let containerClass = 'border-slate-200 bg-white text-slate-800';
-            let statusTag = null;
+              let containerClass = 'border-slate-200 bg-white text-slate-800';
+              let statusTag = null;
 
-            if (isCorrectOption && isUserChosen) {
-              containerClass = 'border-emerald-500 bg-emerald-50/70 text-emerald-950 font-semibold';
-              statusTag = (
-                <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-md">
-                  Your Answer ✓
-                </span>
-              );
-            } else if (isUserChosen && !isCorrectOption) {
-              containerClass = 'border-rose-400 bg-rose-50/80 text-rose-950 font-medium';
-              statusTag = (
-                <span className="text-[10px] font-extrabold uppercase tracking-wider text-rose-700 bg-rose-100 px-2 py-0.5 rounded-md">
-                  Your Answer ✗
-                </span>
-              );
-            } else if (isCorrectOption) {
-              containerClass = 'border-emerald-300 bg-emerald-50/40 text-emerald-900 border-dashed font-medium';
-              statusTag = (
-                <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-700 bg-emerald-100/70 px-2 py-0.5 rounded-md">
-                  Correct Answer
-                </span>
-              );
-            }
+              if (isCorrectOption && isUserChosen) {
+                containerClass = 'border-emerald-500 bg-emerald-50/70 text-emerald-950 font-semibold';
+                statusTag = (
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-md">
+                    Your Answer ✓
+                  </span>
+                );
+              } else if (isUserChosen && !isCorrectOption) {
+                containerClass = 'border-rose-400 bg-rose-50/80 text-rose-950 font-medium';
+                statusTag = (
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-rose-700 bg-rose-100 px-2 py-0.5 rounded-md">
+                    Your Answer ✗
+                  </span>
+                );
+              } else if (isCorrectOption) {
+                containerClass = 'border-emerald-300 bg-emerald-50/40 text-emerald-900 border-dashed font-medium';
+                statusTag = (
+                  <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-700 bg-emerald-100/70 px-2 py-0.5 rounded-md">
+                    Correct Answer
+                  </span>
+                );
+              }
 
-            return (
-              <div
-                key={opt.id}
-                className={`p-3 sm:p-3.5 rounded-xl border text-xs sm:text-sm flex items-center justify-between gap-3 transition-colors ${containerClass}`}
-              >
-                <span>{opt.text.replace(/^\s*(?:(?:Option|Opt)\s+)?[\(\[]?[A-Fa-f0-9][\)\].:\-–]\s*/i, '')}</span>
-                {statusTag}
-              </div>
-            );
-          })}
-        </div>
-      )}
+              return (
+                <div
+                  key={opt.id}
+                  className={`p-3 sm:p-3.5 rounded-xl border text-xs sm:text-sm flex items-center justify-between gap-3 transition-colors ${containerClass}`}
+                >
+                  <span>{opt.text.replace(/^\s*(?:(?:Option|Opt)\s+)?[\(\[]?[A-Fa-f0-9][\)\].:\-–]\s*/i, '')}</span>
+                  {statusTag}
+                </div>
+              );
+            })}
+          </div>
+        );
+      })()}
 
       {/* Numerical Answer Output */}
       {question.type === 'numerical' && (

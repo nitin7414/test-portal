@@ -245,6 +245,162 @@ export function cleanOptionText(text: string): string {
 }
 
 /**
+ * Unpacks any option whose text inadvertently contains multiple collapsed options.
+ * e.g. text: "32 B) 36 C) 38 D) 40 E) 42"
+ * becomes:
+ * [
+ *   { id: 'opt_1_a', key: 'A', text: '32' },
+ *   { id: 'opt_1_b', key: 'B', text: '36' },
+ *   { id: 'opt_1_c', key: 'C', text: '38' },
+ *   { id: 'opt_1_d', key: 'D', text: '40' },
+ *   { id: 'opt_1_e', key: 'E', text: '42' }
+ * ]
+ */
+export function unpackExtractedOptions(
+  options: ExtractedOption[],
+  qNum: number = 1
+): ExtractedOption[] {
+  if (!options || options.length === 0) return options;
+
+  const subOptionRegex =
+    /(?:^|\s+)(?:[\(\[]?([B-Fb-f2-5]|ii|iii|iv|v)[\)\].:\-–]|[\(\[]([B-Fb-f2-5])[\)\]])\s*/;
+
+  const hasEmbedded = options.some((opt) => subOptionRegex.test(opt.text));
+  if (!hasEmbedded && options.length >= 2) return options;
+
+  const unpacked: ExtractedOption[] = [];
+
+  for (const opt of options) {
+    const text = (opt.text || '').trim();
+    const markerRegex =
+      /(?:^|\s+)(?:[\(\[]([A-Fa-f0-9]|i{1,3}|iv|v)[\)\]]|(?:Option\s+)?([A-Fa-f0-9]|i{1,3}|iv|v)[\)\].:\-–])\s*/gi;
+
+    const matches: { index: number; length: number; key: string }[] = [];
+    let m: RegExpExecArray | null;
+    while ((m = markerRegex.exec(text)) !== null) {
+      const rawKey = m[1] || m[2];
+      if (rawKey) {
+        matches.push({
+          index: m.index,
+          length: m[0].length,
+          key: normalizeOptionKey(rawKey),
+        });
+      }
+    }
+
+    if (matches.length === 0) {
+      unpacked.push({
+        id: opt.id,
+        key: opt.key,
+        text: cleanOptionText(opt.text),
+      });
+    } else {
+      const initialText = text.substring(0, matches[0].index).trim();
+      const parentKey = opt.key || 'A';
+      if (initialText || parentKey) {
+        unpacked.push({
+          id: `opt_${qNum}_${parentKey.toLowerCase()}`,
+          key: parentKey,
+          text: cleanOptionText(initialText || text),
+        });
+      }
+
+      for (let i = 0; i < matches.length; i++) {
+        const cur = matches[i];
+        const textStart = cur.index + cur.length;
+        const textEnd = i + 1 < matches.length ? matches[i + 1].index : text.length;
+        const subText = text.substring(textStart, textEnd).trim();
+        const key = cur.key;
+        unpacked.push({
+          id: `opt_${qNum}_${key.toLowerCase()}`,
+          key,
+          text: cleanOptionText(subText),
+        });
+      }
+    }
+  }
+
+  // Deduplicate by key if duplicate keys were created
+  const seen = new Set<string>();
+  const deduped: ExtractedOption[] = [];
+  for (const item of unpacked) {
+    if (!seen.has(item.key)) {
+      seen.add(item.key);
+      deduped.push(item);
+    }
+  }
+
+  return deduped.length > 0 ? deduped : options;
+}
+
+/**
+ * Unpacks formal QuestionOption[] models during exam runtime or admin review.
+ * Converts collapsed options like "32 B) 36 C) 38 D) 40 E) 42" into distinct options A, B, C, D, E.
+ */
+export function unpackQuestionOptions(
+  options: { id: string; text: string; codeSnippet?: string }[],
+  questionId: string = 'q'
+): { id: string; text: string; codeSnippet?: string }[] {
+  if (!options || options.length === 0) return options;
+
+  const subOptionRegex =
+    /(?:^|\s+)(?:[\(\[]?([B-Fb-f2-5]|ii|iii|iv|v)[\)\].:\-–]|[\(\[]([B-Fb-f2-5])[\)\]])\s*/;
+
+  const hasEmbedded = options.some((opt) => subOptionRegex.test(opt.text));
+  if (!hasEmbedded && options.length >= 2) return options;
+
+  const unpacked: { id: string; text: string; codeSnippet?: string }[] = [];
+
+  options.forEach((opt, optIdx) => {
+    const text = (opt.text || '').trim();
+    const markerRegex =
+      /(?:^|\s+)(?:[\(\[]([A-Fa-f0-9]|i{1,3}|iv|v)[\)\]]|(?:Option\s+)?([A-Fa-f0-9]|i{1,3}|iv|v)[\)\].:\-–])\s*/gi;
+
+    const matches: { index: number; length: number; key: string }[] = [];
+    let m: RegExpExecArray | null;
+    while ((m = markerRegex.exec(text)) !== null) {
+      const rawKey = m[1] || m[2];
+      if (rawKey) {
+        matches.push({
+          index: m.index,
+          length: m[0].length,
+          key: normalizeOptionKey(rawKey),
+        });
+      }
+    }
+
+    if (matches.length === 0) {
+      unpacked.push({
+        ...opt,
+        text: cleanOptionText(opt.text),
+      });
+    } else {
+      const initialText = text.substring(0, matches[0].index).trim();
+      const parentLetter = String.fromCharCode(65 + optIdx);
+      unpacked.push({
+        id: opt.id || `${questionId}_${parentLetter.toLowerCase()}`,
+        text: cleanOptionText(initialText || text),
+        codeSnippet: opt.codeSnippet,
+      });
+
+      for (let i = 0; i < matches.length; i++) {
+        const cur = matches[i];
+        const textStart = cur.index + cur.length;
+        const textEnd = i + 1 < matches.length ? matches[i + 1].index : text.length;
+        const subText = text.substring(textStart, textEnd).trim();
+        const key = cur.key;
+        unpacked.push({
+          id: `${questionId}_${key.toLowerCase()}`,
+          text: cleanOptionText(subText),
+        });
+      }
+    }
+  });
+
+  return unpacked.length > 0 ? unpacked : options;
+}
+
+/**
  * Extract an external answer key table/list if present at the bottom of the document
  * e.g. "Answer Key: 1. A, 2. C, 3. B" or "Answers: 1 - A, 2 - D" or "1: 2" (mapped to B)
  */
@@ -494,9 +650,9 @@ export function parseQuestionsFromRawText(rawText: string): ParseResult {
   const lines = bodyText.split('\n');
 
   // Regex to detect the start of a question:
-  // e.g. "1.", "1)", "Q1.", "Q.1:", "Question 1:", "Question 1.", "1. "
+  // Requires an explicit delimiter (. ) : - –) so math expressions like '18 + 24 = ?' are not treated as question 18!
   const questionStartRegex =
-    /^\s*(?:(?:Question|Que|Problem|Q)\.?\s*)?(\d+)[\s.:)\-–]+\s*(.*)$/i;
+    /^\s*(?:(?:Question|Que|Problem|Q)\.?\s*(\d+)[\s.:)\-–]*|(\d+)[\.:)\-–]+)\s*(.*)$/i;
 
   interface RawBlock {
     qNum: number;
@@ -513,8 +669,9 @@ export function parseQuestionsFromRawText(rawText: string): ParseResult {
     // Check if this line starts a new question
     const qMatch = line.match(questionStartRegex);
     if (qMatch) {
-      const num = parseInt(qMatch[1], 10);
-      const remainder = (qMatch[2] || '').trim();
+      const rawNum = qMatch[1] || qMatch[2];
+      const num = parseInt(rawNum, 10);
+      const remainder = (qMatch[3] || '').trim();
       const isExplicitQStart = /^\s*(?:Question|Que|Problem|Q\.?)\s*\d+/i.test(line);
 
       // Check if this line looks like a question stem
@@ -604,11 +761,29 @@ export function parseQuestionsFromRawText(rawText: string): ParseResult {
           currentOptText.startsWith('*') ||
           currentOptText.endsWith('*');
         const clean = cleanOptionText(currentOptText);
-        optionsMap.push({
-          key: currentOptKey,
-          text: clean,
-          isMarkedAsterisk,
-        });
+
+        // Check if clean itself contains collapsed sub-options like "32 B) 36 C) 38 D) 40 E) 42"
+        const subUnpacked = unpackExtractedOptions(
+          [{ id: `opt_${qNum}_${currentOptKey.toLowerCase()}`, key: currentOptKey, text: clean }],
+          qNum
+        );
+
+        if (subUnpacked.length > 1) {
+          for (const s of subUnpacked) {
+            optionsMap.push({
+              key: s.key,
+              text: s.text,
+              isMarkedAsterisk: s.key === currentOptKey ? isMarkedAsterisk : false,
+            });
+          }
+        } else {
+          optionsMap.push({
+            key: currentOptKey,
+            text: clean,
+            isMarkedAsterisk,
+          });
+        }
+
         if (isMarkedAsterisk && !detectedAnswer) {
           detectedAnswer = currentOptKey;
         }
@@ -707,10 +882,20 @@ export function parseQuestionsFromRawText(rawText: string): ParseResult {
       detectedAnswer = optionsMap.length > 0 ? optionsMap[0].key : 'A';
     }
 
-    const formattedOptions: ExtractedOption[] = optionsMap.map((opt) => ({
-      id: `opt_${qNum}_${opt.key.toLowerCase()}`,
+    // Unpack any collapsed options
+    const fullyUnpacked = unpackExtractedOptions(
+      optionsMap.map((opt) => ({
+        id: `opt_${qNum}_${opt.key.toLowerCase()}`,
+        key: opt.key,
+        text: cleanOptionText(opt.text),
+      })),
+      qNum
+    );
+
+    const formattedOptions: ExtractedOption[] = fullyUnpacked.map((opt) => ({
+      id: opt.id,
       key: opt.key,
-      text: cleanOptionText(opt.text) || `Option ${opt.key}`,
+      text: opt.text || `Option ${opt.key}`,
     }));
 
     // If fewer than 4 options were found, ensure at least standard A, B, C, D exist for editing

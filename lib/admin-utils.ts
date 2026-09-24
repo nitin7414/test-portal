@@ -8,6 +8,7 @@ import { TestMetadata } from '@/types/exam';
 import { getAllUsers, saveUsers, recordDeletedUser, deleteUserFromDatabase } from '@/lib/auth';
 import { MOCK_TESTS } from '@/lib/mock-tests';
 import { INITIAL_STUDENT_RESULTS } from '@/lib/student-history';
+import { unpackQuestionOptions } from '@/lib/pdf-parser';
 import { ConvexHttpClient } from 'convex/browser';
 import { api } from '@/convex/_generated/api';
 
@@ -241,6 +242,27 @@ export function deleteAdmin(userId: string): UserAccount[] {
    TEST MANAGEMENT
    ========================================================================= */
 
+/** Ensure all questions in a test have properly structured, unpacked MCQ options */
+export function normalizeTestOptions(test: TestMetadata): TestMetadata {
+  if (!test.sections) return test;
+  return {
+    ...test,
+    sections: test.sections.map((sec) => ({
+      ...sec,
+      questions: sec.questions.map((q) => {
+        if (q.options && q.options.length > 0) {
+          const unpacked = unpackQuestionOptions(q.options, q.id);
+          return {
+            ...q,
+            options: unpacked,
+          };
+        }
+        return q;
+      }),
+    })),
+  };
+}
+
 /** Get all tests — dynamic tests stored in localStorage */
 export function getAllTests(): TestMetadata[] {
   if (typeof window === 'undefined') return [];
@@ -259,7 +281,7 @@ export function getAllTests(): TestMetadata[] {
 
     const allBase = [...MOCK_TESTS, ...customTests].filter((t) => !DEMO_TEST_IDS.has(t.id));
     return allBase.map((t) =>
-      overrides[t.id] ? { ...t, ...overrides[t.id] } : t
+      normalizeTestOptions(overrides[t.id] ? { ...t, ...overrides[t.id] } : t)
     );
   } catch {
     return [];
@@ -270,14 +292,15 @@ export function getAllTests(): TestMetadata[] {
 export function createNewTest(newTest: TestMetadata): TestMetadata[] {
   if (typeof window === 'undefined') return [];
   try {
+    const normalized = normalizeTestOptions(newTest);
     const customRaw = localStorage.getItem(STORAGE_CUSTOM_TESTS_KEY);
     const customTests: TestMetadata[] = customRaw ? JSON.parse(customRaw) : [];
-    const updated = [newTest, ...customTests.filter((t) => t.id !== newTest.id && !DEMO_TEST_IDS.has(t.id))];
+    const updated = [normalized, ...customTests.filter((t) => t.id !== normalized.id && !DEMO_TEST_IDS.has(t.id))];
     localStorage.setItem(STORAGE_CUSTOM_TESTS_KEY, JSON.stringify(updated));
     broadcastTestUpdates();
 
     // Immediately synchronize newly created test with Convex cloud database
-    syncTestToDatabase(newTest).catch((err) => {
+    syncTestToDatabase(normalized).catch((err) => {
       console.warn('Convex background test upload notice:', err);
     });
   } catch (err) {

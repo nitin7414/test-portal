@@ -12,6 +12,7 @@ import {
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { formatDuration } from '@/lib/student-history';
+import { unpackQuestionOptions } from '@/lib/pdf-parser';
 
 interface StudentResponseModalProps {
   result: TestResult | null;
@@ -246,11 +247,13 @@ const QuestionResponseCard: React.FC<QuestionResponseCardProps> = ({
       </p>
 
       {/* Options Render */}
-      {question.options && question.options.length > 0 && (
-        <div className="space-y-1.5 mb-3">
-          {question.options.map((opt) => {
-            const isUserChosen = question.userSelectedOptionIds.includes(opt.id);
-            const isCorrectOption = question.correctOptionIds.includes(opt.id);
+      {question.options && question.options.length > 0 && (() => {
+        const displayOptions = unpackQuestionOptions(question.options, question.questionId);
+        return (
+          <div className="space-y-1.5 mb-3">
+            {displayOptions.map((opt) => {
+              const isUserChosen = question.userSelectedOptionIds.includes(opt.id);
+              const isCorrectOption = question.correctOptionIds.includes(opt.id);
 
             let borderClass = 'border-slate-200 bg-white text-slate-800';
             let badgeEl = null;
@@ -289,7 +292,8 @@ const QuestionResponseCard: React.FC<QuestionResponseCardProps> = ({
             );
           })}
         </div>
-      )}
+      );
+    })()}
 
       {/* Numerical Answer Render */}
       {question.type === 'numerical' && (

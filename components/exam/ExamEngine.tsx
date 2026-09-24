@@ -20,6 +20,7 @@ import {
   GridIcon,
 } from '@/components/ui/Icons';
 import { saveStudentTestResult } from '@/lib/student-history';
+import { unpackQuestionOptions } from '@/lib/pdf-parser';
 
 interface ExamEngineProps {
   test: TestMetadata;
@@ -34,9 +35,19 @@ export const ExamEngine: React.FC<ExamEngineProps> = ({
 }) => {
   const router = useRouter();
 
-  // Extract flat list of questions across sections
+  // Extract flat list of questions across sections, ensuring any collapsed options are dynamically unpacked into proper MCQs
   const questions: Question[] = useMemo(() => {
-    return test.sections.flatMap((s) => s.questions);
+    return test.sections
+      .flatMap((s) => s.questions)
+      .map((q) => {
+        if (q.options && q.options.length > 0) {
+          return {
+            ...q,
+            options: unpackQuestionOptions(q.options, q.id),
+          };
+        }
+        return q;
+      });
   }, [test]);
 
   const durationSeconds = test.durationMinutes * 60;

@@ -4,7 +4,12 @@ import React, { useState, useRef } from 'react';
 import { UserAccount } from '@/types/auth';
 import { TestMetadata, Section, Question } from '@/types/exam';
 import { createNewTest } from '@/lib/admin-utils';
-import { extractTextFromPdfFile, parseQuestionsFromRawText, ExtractedQuestion } from '@/lib/pdf-parser';
+import {
+  extractTextFromPdfFile,
+  parseQuestionsFromRawText,
+  unpackQuestionOptions,
+  ExtractedQuestion,
+} from '@/lib/pdf-parser';
 import {
   UploadIcon,
   FileTextIcon,
@@ -363,20 +368,24 @@ export const GenerateTestView: React.FC<GenerateTestViewProps> = ({
 
     // Convert parsed questions to formal Question models
     const formalQuestions: Question[] = questions.map((q, idx) => {
+      const qId = `q_${testId}_${idx + 1}`;
+      const baseOptions = q.options.map((opt) => ({
+        id: opt.id,
+        text: opt.text.trim(),
+      }));
+      const unpackedOptions = unpackQuestionOptions(baseOptions, qId);
+
       // Find the ID of the correct option
       const matchedOpt = q.options.find((opt) => opt.key === q.correctOptionKey);
-      const correctOptionId = matchedOpt ? matchedOpt.id : q.options[0]?.id || 'opt_a';
+      const correctOptionId = matchedOpt ? matchedOpt.id : unpackedOptions[0]?.id || 'opt_a';
 
       return {
-        id: `q_${testId}_${idx + 1}`,
+        id: qId,
         sectionId: 'sec_main',
         type: 'single-choice',
         prompt: q.prompt,
         codeSnippet: q.codeSnippet,
-        options: q.options.map((opt) => ({
-          id: opt.id,
-          text: opt.text.trim(),
-        })),
+        options: unpackedOptions,
         marks: marksPerQuestion,
         negativeMarks: negativeMarks,
         correctOptionIds: [correctOptionId],
