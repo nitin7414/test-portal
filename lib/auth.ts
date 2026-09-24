@@ -118,7 +118,6 @@ export async function syncUserToDatabase(user: UserAccount): Promise<void> {
       batch: user.batch,
       subject: user.subject || user.batch,
       passwordHash: user.passwordHash,
-      plainPassword: user.plainPassword,
       status: user.status,
       createdAt: user.createdAt,
     });
@@ -180,17 +179,10 @@ export async function syncUsersFromDatabase(): Promise<UserAccount[]> {
             batch: cu.batch,
             subject: cu.subject,
             passwordHash: cu.passwordHash,
-            plainPassword: cu.plainPassword,
             status: cu.status,
             createdAt: cu.createdAt,
           });
           modified = true;
-        } else {
-          // If cloud has plainPassword and local does not, merge it
-          if (cu.plainPassword && !localUsers[idx].plainPassword) {
-            localUsers[idx].plainPassword = cu.plainPassword;
-            modified = true;
-          }
         }
       }
 
@@ -784,7 +776,6 @@ export function createStudentAccount(
     subject: finalSubject,
     role: 'student',
     passwordHash,
-    plainPassword,
     createdAt: new Date().toISOString(),
     status: 'active',
   };
@@ -917,7 +908,6 @@ export function createAdminAccount(
     role: 'admin',
     isSuperAdmin: false,
     passwordHash,
-    plainPassword: trimmedPass, // Store plain credential for 100% reliable verification
     createdAt: new Date().toISOString(),
     status: 'active',
   };

@@ -79,9 +79,12 @@ export function useAttemptLifecycle(testId: string, studentId: string, durationS
             current.autoSubmitted = true;
             localStorage.setItem(STORAGE_ATTEMPTS_KEY, JSON.stringify(attempts));
           } else {
-            useExamStore.getState().showResumeBanner = true;
+            useExamStore.setState({ showResumeBanner: true });
           }
         } else {
+          // Reset exam store state for fresh attempt (P2-3: prevents stale data from prior test)
+          useExamStore.getState().resetExamStore();
+
           // Create new authoritative attempt
           const now = Date.now();
           current = {
@@ -208,10 +211,56 @@ export function useAnswerSync(attemptId?: string) {
     }
   }, [attemptId, hydrateAnswers]);
 
+  // Core save logic extracted for both debounced and immediate flushing
+  const commitAnswer = useCallback(
+    (questionId: string, selectedOptionId: string) => {
+      if (!attemptId) return;
+      try {
+        const raw = localStorage.getItem(STORAGE_ANSWERS_KEY);
+        const allAnswers: Array<{
+          attemptId: string;
+          questionId: string;
+          selectedOptionId: string;
+          savedAt: number;
+        }> = raw ? JSON.parse(raw) : [];
+
+        // Compound index upsert
+        const existingIdx = allAnswers.findIndex(
+          (a) => a.attemptId === attemptId && a.questionId === questionId
+        );
+
+        if (existingIdx >= 0) {
+          allAnswers[existingIdx].selectedOptionId = selectedOptionId;
+          allAnswers[existingIdx].savedAt = Date.now();
+        } else {
+          allAnswers.push({
+            attemptId,
+            questionId,
+            selectedOptionId,
+            savedAt: Date.now(),
+          });
+        }
+
+        localStorage.setItem(STORAGE_ANSWERS_KEY, JSON.stringify(allAnswers));
+        setSyncStatus('saved');
+      } catch (err) {
+        console.error('Failed to save answer:', err);
+        setSyncStatus('idle');
+      }
+    },
+    [attemptId, setSyncStatus]
+  );
+
+  // Track pending answers for flush-on-submit (P2-5)
+  const pendingAnswersRef = useRef<Record<string, string>>({});
+
   // Debounced save mutation
   const saveAnswer = useCallback(
     (questionId: string, selectedOptionId: string) => {
       if (!attemptId) return;
+
+      // Track pending answer for flush
+      pendingAnswersRef.current[questionId] = selectedOptionId;
 
       // Clear any pending debounce for this question
       if (debounceTimerRef.current[questionId]) {
@@ -222,42 +271,26 @@ export function useAnswerSync(attemptId?: string) {
 
       // 600ms debounce before committing to persistent storage
       debounceTimerRef.current[questionId] = setTimeout(() => {
-        try {
-          const raw = localStorage.getItem(STORAGE_ANSWERS_KEY);
-          const allAnswers: Array<{
-            attemptId: string;
-            questionId: string;
-            selectedOptionId: string;
-            savedAt: number;
-          }> = raw ? JSON.parse(raw) : [];
-
-          // Compound index upsert
-          const existingIdx = allAnswers.findIndex(
-            (a) => a.attemptId === attemptId && a.questionId === questionId
-          );
-
-          if (existingIdx >= 0) {
-            allAnswers[existingIdx].selectedOptionId = selectedOptionId;
-            allAnswers[existingIdx].savedAt = Date.now();
-          } else {
-            allAnswers.push({
-              attemptId,
-              questionId,
-              selectedOptionId,
-              savedAt: Date.now(),
-            });
-          }
-
-          localStorage.setItem(STORAGE_ANSWERS_KEY, JSON.stringify(allAnswers));
-          setSyncStatus('saved');
-        } catch (err) {
-          console.error('Failed to save answer:', err);
-          setSyncStatus('idle');
-        }
+        commitAnswer(questionId, selectedOptionId);
+        delete pendingAnswersRef.current[questionId];
       }, 600);
     },
-    [attemptId, setSyncStatus]
+    [attemptId, setSyncStatus, commitAnswer]
   );
 
-  return { saveAnswer };
+  // P2-5: Flush all pending debounced answers immediately (call before submit)
+  const flushPendingAnswers = useCallback(() => {
+    // Clear all debounce timers and commit immediately
+    for (const [qId, timer] of Object.entries(debounceTimerRef.current)) {
+      clearTimeout(timer);
+      delete debounceTimerRef.current[qId];
+    }
+    // Commit any pending answers that haven't been saved yet
+    for (const [qId, optId] of Object.entries(pendingAnswersRef.current)) {
+      commitAnswer(qId, optId);
+    }
+    pendingAnswersRef.current = {};
+  }, [commitAnswer]);
+
+  return { saveAnswer, flushPendingAnswers };
 }

@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { WifiOffIcon, WifiIcon, RefreshIcon, AlertTriangleIcon, CheckCircleIcon, ArrowRightIcon } from '@/components/ui/Icons';
+import { useExamStore } from '@/stores/examStore';
 
 export function OfflineMonitor() {
   const [isOffline, setIsOffline] = useState(false);
@@ -13,17 +14,21 @@ export function OfflineMonitor() {
   useEffect(() => {
     // Initial check
     if (typeof navigator !== 'undefined') {
-      setIsOffline(!navigator.onLine);
+      const offline = !navigator.onLine;
+      setIsOffline(offline);
+      useExamStore.getState().setOffline(offline);
     }
 
     const handleOffline = () => {
       setIsOffline(true);
       setWasOffline(true);
       setReconnectCountdown(10);
+      useExamStore.getState().setOffline(true);
     };
 
     const handleOnline = () => {
       setIsOffline(false);
+      useExamStore.getState().setOffline(false);
       // Keep wasOffline true for 4 seconds to show the green "Restored" toast
       setTimeout(() => {
         setWasOffline(false);
@@ -66,11 +71,13 @@ export function OfflineMonitor() {
       });
       if (res.ok || res.status < 500) {
         setIsOffline(false);
+        useExamStore.getState().setOffline(false);
         setWasOffline(true);
         setTimeout(() => setWasOffline(false), 4000);
       }
     } catch {
       setIsOffline(true);
+      useExamStore.getState().setOffline(true);
     } finally {
       setIsPinging(false);
     }

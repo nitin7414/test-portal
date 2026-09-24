@@ -9,27 +9,37 @@ import { v } from 'convex/values';
 export const listUsers = query({
   args: {},
   handler: async (ctx) => {
-    return await ctx.db.query('users').collect();
+    const users = await ctx.db.query('users').collect();
+    return users.map((u) => {
+      const { plainPassword, ...safe } = u as any;
+      return safe;
+    });
   },
 });
 
 export const getUserByEmail = query({
   args: { email: v.string() },
   handler: async (ctx, args) => {
-    return await ctx.db
+    const user = await ctx.db
       .query('users')
       .withIndex('by_email', (q) => q.eq('email', args.email.toLowerCase()))
       .first();
+    if (!user) return null;
+    const { plainPassword, ...safe } = user as any;
+    return safe;
   },
 });
 
 export const getUserByStudentId = query({
   args: { studentId: v.string() },
   handler: async (ctx, args) => {
-    return await ctx.db
+    const user = await ctx.db
       .query('users')
       .withIndex('by_studentId', (q) => q.eq('studentId', args.studentId.toUpperCase()))
       .first();
+    if (!user) return null;
+    const { plainPassword, ...safe } = user as any;
+    return safe;
   },
 });
 
@@ -61,6 +71,8 @@ export const upsertUser = mutation({
         .first();
     }
 
+    const { plainPassword: _ignore, ...safeArgs } = args;
+
     if (existing) {
       await ctx.db.patch(existing._id, {
         name: args.name,
@@ -71,13 +83,12 @@ export const upsertUser = mutation({
         batch: args.batch,
         subject: args.subject,
         passwordHash: args.passwordHash,
-        plainPassword: args.plainPassword,
         status: args.status,
       });
       return existing._id;
     } else {
       return await ctx.db.insert('users', {
-        ...args,
+        ...safeArgs,
         email: args.email.toLowerCase(),
       });
     }
@@ -106,6 +117,7 @@ export const seedInitialUsers = mutation({
   handler: async (ctx, args) => {
     const insertedIds = [];
     for (const u of args.users) {
+      const { plainPassword: _ignore, ...safeUser } = u;
       const existing = await ctx.db
         .query('users')
         .withIndex('by_email', (q) => q.eq('email', u.email.toLowerCase()))
@@ -120,13 +132,12 @@ export const seedInitialUsers = mutation({
           batch: u.batch,
           subject: u.subject,
           passwordHash: u.passwordHash,
-          plainPassword: u.plainPassword,
           status: u.status,
         });
         insertedIds.push(existing._id);
       } else {
         const id = await ctx.db.insert('users', {
-          ...u,
+          ...safeUser,
           email: u.email.toLowerCase(),
         });
         insertedIds.push(id);

@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import React, { useEffect, useState, useMemo, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { TestMetadata, Question } from '@/types/exam';
 import { useExamStore } from '@/stores/examStore';
@@ -61,7 +61,7 @@ export const ExamEngine: React.FC<ExamEngineProps> = ({
   );
 
   // Debounced answer autosave hook
-  const { saveAnswer } = useAnswerSync(attempt?.attemptId);
+  const { saveAnswer, flushPendingAnswers } = useAnswerSync(attempt?.attemptId);
 
   // Zustand Store
   const {
@@ -73,6 +73,7 @@ export const ExamEngine: React.FC<ExamEngineProps> = ({
     markedForReview,
     toggleMarkForReview,
     isOffline,
+    setOffline,
     syncStatus,
     tabSwitchCount,
     showTabSwitchWarning,
@@ -82,12 +83,78 @@ export const ExamEngine: React.FC<ExamEngineProps> = ({
     setShowSubmitModal,
     showResumeBanner,
     dismissResumeBanner,
+    hydrateUiState,
   } = useExamStore();
 
   // Server-authoritative countdown timer state (ticking locally every 1s from immutable server startedAt)
   const [remainingSeconds, setRemainingSeconds] = useState<number>(durationSeconds);
   const [submitting, setSubmitting] = useState(false);
   const [mobilePaletteOpen, setMobilePaletteOpen] = useState(false);
+  const [showBackWarningModal, setShowBackWarningModal] = useState(false);
+
+  // Ref to latest handleSubmitFinal to avoid stale closure in timer effect
+  const submitFinalRef = useRef<((isAuto?: boolean) => Promise<void>) | null>(null);
+
+  // Network connectivity listener for offline badge and status (P2-6)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handleOnline = () => setOffline(false);
+    const handleOffline = () => setOffline(true);
+
+    if (typeof navigator !== 'undefined') {
+      setOffline(!navigator.onLine);
+    }
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, [setOffline]);
+
+  // Restore UI state on reload / mount (P2-3: preserves active question index & review flags across refresh)
+  useEffect(() => {
+    if (!attempt?.attemptId) return;
+    try {
+      const raw = localStorage.getItem(`exam_ui_state_${attempt.attemptId}`);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        hydrateUiState({
+          currentQuestionIndex:
+            typeof parsed.currentQuestionIndex === 'number' && parsed.currentQuestionIndex < questions.length
+              ? parsed.currentQuestionIndex
+              : undefined,
+          markedForReview: Array.isArray(parsed.markedForReview) ? parsed.markedForReview : undefined,
+          tabSwitchCount: typeof parsed.tabSwitchCount === 'number' ? parsed.tabSwitchCount : undefined,
+        });
+      }
+    } catch (err) {
+      console.error('Failed to restore UI state from localStorage:', err);
+    }
+  }, [attempt?.attemptId, questions.length, hydrateUiState]);
+
+  // Persist UI state to localStorage on every change during exam (P2-3)
+  useEffect(() => {
+    if (!attempt?.attemptId || attempt.status !== 'IN_PROGRESS') return;
+    try {
+      localStorage.setItem(
+        `exam_ui_state_${attempt.attemptId}`,
+        JSON.stringify({
+          currentQuestionIndex,
+          markedForReview,
+          tabSwitchCount,
+        })
+      );
+    } catch (err) {
+      console.error('Failed to persist UI state to localStorage:', err);
+    }
+  }, [attempt?.attemptId, attempt?.status, currentQuestionIndex, markedForReview, tabSwitchCount]);
+
+  // Track pushState count for cleanup (P2-2)
+  const historyPushCountRef = useRef(0);
 
   // Derive client-side countdown smoothly from authoritative startedAt
   useEffect(() => {
@@ -101,7 +168,7 @@ export const ExamEngine: React.FC<ExamEngineProps> = ({
 
       // If timer hits zero on client before auto-submit triggers, submit locally
       if (left <= 0 && attempt.status === 'IN_PROGRESS') {
-        handleSubmitFinal(true);
+        submitFinalRef.current?.(true);
       }
     };
 
@@ -124,28 +191,62 @@ export const ExamEngine: React.FC<ExamEngineProps> = ({
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [attempt]);
 
-  // Anti-cheat: Visibility change / Window blur listener
+  // Browser Back Button Trap & Confirmation Warning Modal (P2-2 fix: track push count)
   useEffect(() => {
     if (!attempt || attempt.status !== 'IN_PROGRESS') return;
 
+    // Push initial synthetic history anchor state
+    window.history.pushState({ examLock: true }, '', window.location.href);
+    historyPushCountRef.current = 1;
+
+    const handlePopState = () => {
+      // Re-push immediately to keep the browser on the active exam page
+      window.history.pushState({ examLock: true }, '', window.location.href);
+      historyPushCountRef.current++;
+      // Open the clean, beautiful warning modal
+      setShowBackWarningModal(true);
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => {
+      window.removeEventListener('popstate', handlePopState);
+      // Clean up synthetic history entries so back button works post-exam
+      const count = historyPushCountRef.current;
+      if (count > 0) {
+        window.history.go(-count);
+        historyPushCountRef.current = 0;
+      }
+    };
+  }, [attempt]);
+
+  // Anti-cheat: Visibility change listener (P2-1 fix: removed blur, added debounce)
+  useEffect(() => {
+    if (!attempt || attempt.status !== 'IN_PROGRESS') return;
+
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
     const handleVisibilityChange = () => {
       if (document.hidden) {
-        recordTabSwitch();
-        logTabSwitch();
+        // Debounce: ignore transient visibility flickers (< 500ms)
+        // e.g., OS notification overlays, momentary focus loss
+        debounceTimer = setTimeout(() => {
+          if (document.hidden) {
+            recordTabSwitch();
+            logTabSwitch();
+          }
+        }, 500);
+      } else if (debounceTimer) {
+        // Document became visible again before the debounce fired — cancel it
+        clearTimeout(debounceTimer);
+        debounceTimer = null;
       }
     };
 
-    const handleBlur = () => {
-      recordTabSwitch();
-      logTabSwitch();
-    };
-
     document.addEventListener('visibilitychange', handleVisibilityChange);
-    window.addEventListener('blur', handleBlur);
 
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
-      window.removeEventListener('blur', handleBlur);
+      if (debounceTimer) clearTimeout(debounceTimer);
     };
   }, [attempt, recordTabSwitch, logTabSwitch]);
 
@@ -215,6 +316,8 @@ export const ExamEngine: React.FC<ExamEngineProps> = ({
     async (isAuto = false) => {
       if (!attempt) return;
       setSubmitting(true);
+      // P2-5: Flush all pending debounced answers before submitting
+      flushPendingAnswers();
       await submitAttempt();
 
       // Grade the attempt and save to student history for instant review
@@ -330,11 +433,19 @@ export const ExamEngine: React.FC<ExamEngineProps> = ({
         console.error('Failed to grade attempt:', err);
       }
 
+      try {
+        localStorage.removeItem(`exam_ui_state_${attempt.attemptId}`);
+      } catch {}
+
       setShowSubmitModal(false);
       setSubmitting(false);
     },
-    [attempt, submitAttempt, questions, answers, test, studentId, candidateName, setShowSubmitModal]
+    [attempt, submitAttempt, flushPendingAnswers, questions, answers, test, studentId, candidateName, setShowSubmitModal]
   );
+
+  useEffect(() => {
+    submitFinalRef.current = handleSubmitFinal;
+  }, [handleSubmitFinal]);
 
   // Formatted timer breakdown
   const formatTimer = (secs: number) => {
@@ -1158,6 +1269,90 @@ export const ExamEngine: React.FC<ExamEngineProps> = ({
               >
                 Confirm Submit
               </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* 5. BROWSER BACK BUTTON WARNING & AUTO-SUBMIT CONFIRMATION MODAL            */}
+      {/* ========================================================================= */}
+      {showBackWarningModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          data-lenis-prevent="true"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/75 backdrop-blur-md animate-fade-in"
+        >
+          <div
+            data-lenis-prevent="true"
+            className="bg-white rounded-3xl border border-slate-200/90 p-6 sm:p-8 max-w-md w-full shadow-2xl space-y-5 animate-scale-up"
+          >
+            {/* Warning Header */}
+            <div className="text-center space-y-2.5">
+              <div className="h-14 w-14 rounded-2xl bg-amber-500/10 text-amber-600 border border-amber-200 flex items-center justify-center mx-auto shadow-inner">
+                <AlertCircleIcon size={30} className="animate-pulse" />
+              </div>
+              <div className="space-y-1">
+                <span className="text-[10px] font-extrabold uppercase tracking-widest text-amber-700 bg-amber-100/70 border border-amber-200 px-2.5 py-0.5 rounded-full inline-block">
+                  Warning &bull; Browser Navigation
+                </span>
+                <h2 className="text-xl font-black text-slate-900 tracking-tight">
+                  Leave Assessment & Submit?
+                </h2>
+              </div>
+              <p className="text-xs sm:text-sm text-slate-600 leading-relaxed">
+                If you press back or leave this page, your test will be <strong className="text-rose-600 font-bold">submitted immediately</strong>. All your answers recorded so far will be finalized and evaluated.
+              </p>
+            </div>
+
+            {/* Assessment Progress Snapshot */}
+            <div className="grid grid-cols-2 gap-3 p-3.5 bg-slate-50 rounded-2xl border border-slate-200 text-center">
+              <div className="p-2 bg-white rounded-xl border border-slate-100 shadow-2xs">
+                <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Answered</span>
+                <span className="text-sm font-black text-slate-900">
+                  {totalAnswered} / {questions.length} <span className="text-xs font-semibold text-slate-500">done</span>
+                </span>
+              </div>
+              <div className="p-2 bg-white rounded-xl border border-slate-100 shadow-2xs">
+                <span className="text-[10px] uppercase font-bold text-slate-400 block mb-0.5">Time Left</span>
+                <span className="text-sm font-black font-mono text-amber-700">
+                  {formatTimer(remainingSeconds)}
+                </span>
+              </div>
+            </div>
+
+            <p className="text-xs text-center font-medium text-slate-500">
+              Do you still want to go back and submit now, or stay and continue your test?
+            </p>
+
+            {/* Action Buttons */}
+            <div className="flex flex-col sm:flex-row items-center gap-2.5 pt-1">
+              <button
+                type="button"
+                onClick={() => setShowBackWarningModal(false)}
+                className="w-full sm:w-1/2 order-2 sm:order-1 py-3 px-4 rounded-xl text-xs sm:text-sm font-bold bg-slate-100 hover:bg-slate-200 text-slate-800 transition-all cursor-pointer shadow-xs active:scale-[0.98]"
+              >
+                Stay & Continue Test
+              </button>
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={async () => {
+                  setShowBackWarningModal(false);
+                  await handleSubmitFinal(false);
+                }}
+                className="w-full sm:w-1/2 order-1 sm:order-2 py-3 px-4 rounded-xl text-xs sm:text-sm font-bold bg-rose-600 hover:bg-rose-700 text-white transition-all cursor-pointer shadow-md hover:shadow-rose-600/25 active:scale-[0.98] flex items-center justify-center gap-2"
+              >
+                {submitting ? (
+                  <>
+                    <div className="h-4 w-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <span>Submitting...</span>
+                  </>
+                ) : (
+                  <span>Submit & Exit</span>
+                )}
+              </button>
             </div>
           </div>
         </div>

@@ -15,8 +15,8 @@ export const saveAnswer = mutation({
   },
   handler: async (ctx, args) => {
     // 1. Validate that the attempt is currently IN_PROGRESS
-    const attempts = await ctx.db.query('attempts').collect();
-    const attempt = attempts.find((a) => a._id.toString() === args.attemptId);
+    const id = ctx.db.normalizeId('attempts', args.attemptId);
+    const attempt = id ? await ctx.db.get(id) : null;
 
     if (!attempt) {
       throw new Error('Invalid attempt ID');

@@ -26,6 +26,7 @@ interface ExamStoreState {
   dismissTabSwitchWarning: () => void;
   setShowSubmitModal: (show: boolean) => void;
   dismissResumeBanner: () => void;
+  hydrateUiState: (state: { currentQuestionIndex?: number; markedForReview?: string[]; tabSwitchCount?: number }) => void;
   resetExamStore: () => void;
 }
 
@@ -101,6 +102,21 @@ export const useExamStore = create<ExamStoreState>((set) => ({
   setShowSubmitModal: (show) => set({ showSubmitModal: show }),
 
   dismissResumeBanner: () => set({ showResumeBanner: false }),
+
+  hydrateUiState: (uiState) =>
+    set((state) => ({
+      currentQuestionIndex:
+        typeof uiState.currentQuestionIndex === 'number'
+          ? uiState.currentQuestionIndex
+          : state.currentQuestionIndex,
+      markedForReview: Array.isArray(uiState.markedForReview)
+        ? uiState.markedForReview
+        : state.markedForReview,
+      tabSwitchCount:
+        typeof uiState.tabSwitchCount === 'number'
+          ? uiState.tabSwitchCount
+          : state.tabSwitchCount,
+    })),
 
   resetExamStore: () =>
     set({

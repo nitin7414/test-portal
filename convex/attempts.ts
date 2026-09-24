@@ -75,9 +75,8 @@ export const autoSubmitAttempt = internalMutation({
     attemptId: v.string(),
   },
   handler: async (ctx, args) => {
-    // Find attempt by ID (convert to Id<'attempts'> if needed or lookup)
-    const attempts = await ctx.db.query('attempts').collect();
-    const attempt = attempts.find((a) => a._id.toString() === args.attemptId);
+    const id = ctx.db.normalizeId('attempts', args.attemptId);
+    const attempt = id ? await ctx.db.get(id) : null;
 
     if (!attempt) return;
 
@@ -101,8 +100,8 @@ export const submitAttempt = mutation({
     attemptId: v.string(),
   },
   handler: async (ctx, args) => {
-    const attempts = await ctx.db.query('attempts').collect();
-    const attempt = attempts.find((a) => a._id.toString() === args.attemptId);
+    const id = ctx.db.normalizeId('attempts', args.attemptId);
+    const attempt = id ? await ctx.db.get(id) : null;
 
     if (!attempt) {
       throw new Error('Attempt not found');
@@ -132,8 +131,8 @@ export const logTabSwitch = mutation({
     timestamp: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    const attempts = await ctx.db.query('attempts').collect();
-    const attempt = attempts.find((a) => a._id.toString() === args.attemptId);
+    const id = ctx.db.normalizeId('attempts', args.attemptId);
+    const attempt = id ? await ctx.db.get(id) : null;
 
     if (!attempt || attempt.status !== 'IN_PROGRESS') {
       return;
@@ -158,8 +157,7 @@ export const getAttempt = query({
   },
   handler: async (ctx, args) => {
     if (!args.attemptId) return null;
-    const attempts = await ctx.db.query('attempts').collect();
-    const attempt = attempts.find((a) => a._id.toString() === args.attemptId);
-    return attempt || null;
+    const id = ctx.db.normalizeId('attempts', args.attemptId);
+    return id ? await ctx.db.get(id) : null;
   },
 });

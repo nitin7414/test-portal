@@ -375,9 +375,27 @@ export const GenerateTestView: React.FC<GenerateTestViewProps> = ({
       }));
       const unpackedOptions = unpackQuestionOptions(baseOptions, qId);
 
-      // Find the ID of the correct option
-      const matchedOpt = q.options.find((opt) => opt.key === q.correctOptionKey);
-      const correctOptionId = matchedOpt ? matchedOpt.id : unpackedOptions[0]?.id || 'opt_a';
+      // Find the correct option ID from the POST-unpack array to avoid stale IDs.
+      // First try matching by key suffix (e.g., option with key 'B' has id ending in '_b').
+      // Fall back to index-based mapping if key-based lookup fails.
+      const correctKeyLower = (q.correctOptionKey || 'A').toLowerCase();
+      let correctOptionId = unpackedOptions.find(
+        (opt) => opt.id.endsWith(`_${correctKeyLower}`)
+      )?.id;
+
+      // Fallback: try original options array for the key, then verify it exists in unpacked
+      if (!correctOptionId) {
+        const matchedOpt = q.options.find((opt) => opt.key === q.correctOptionKey);
+        if (matchedOpt && unpackedOptions.some((u) => u.id === matchedOpt.id)) {
+          correctOptionId = matchedOpt.id;
+        }
+      }
+
+      // Fallback: use index mapping (A=0, B=1, C=2, D=3)
+      if (!correctOptionId) {
+        const keyIndex = (q.correctOptionKey || 'A').charCodeAt(0) - 65;
+        correctOptionId = unpackedOptions[keyIndex]?.id || unpackedOptions[0]?.id || 'opt_a';
+      }
 
       return {
         id: qId,
@@ -393,10 +411,47 @@ export const GenerateTestView: React.FC<GenerateTestViewProps> = ({
       };
     });
 
+    // P1-5: Validate questions before persistence — reject malformed ones
+    const validQuestions: Question[] = [];
+    const rejectedWarnings: string[] = [];
+    for (const q of formalQuestions) {
+      const issues: string[] = [];
+      if (!q.prompt || q.prompt.startsWith('Question ') && q.prompt.match(/^Question \d+$/)) {
+        issues.push('empty prompt');
+      }
+      if (!q.options || q.options.length < 2) {
+        issues.push('fewer than 2 options');
+      }
+      if (q.options && q.options.length >= 2 && q.options.every((o) => o.text.startsWith('Option '))) {
+        issues.push('all placeholder options');
+      }
+      if (q.correctOptionIds.length === 0 || !q.options?.some((o) => q.correctOptionIds.includes(o.id))) {
+        issues.push('correct answer not in options');
+      }
+      if (issues.length > 0) {
+        rejectedWarnings.push(`Q${validQuestions.length + 1}: ${issues.join(', ')}`);
+      } else {
+        validQuestions.push(q);
+      }
+    }
+
+    if (rejectedWarnings.length > 0) {
+      showToast(
+        `${rejectedWarnings.length} malformed question(s) excluded: ${rejectedWarnings.slice(0, 3).join('; ')}${rejectedWarnings.length > 3 ? '...' : ''}`,
+        'error'
+      );
+    }
+
+    if (validQuestions.length === 0) {
+      showToast('No valid questions to upload after validation. Please review the parsed questions.', 'error');
+      setIsSubmitting(false);
+      return;
+    }
+
     const mainSection: Section = {
       id: 'sec_main',
       title: 'Section 1: General Assessment',
-      questions: formalQuestions,
+      questions: validQuestions,
     };
 
     const newTest: TestMetadata = {
@@ -404,13 +459,13 @@ export const GenerateTestView: React.FC<GenerateTestViewProps> = ({
       title: title.trim(),
       code: code.trim().toUpperCase(),
       category: category.trim(),
-      description: description.trim() || `Assessment with ${questions.length} questions.`,
+      description: description.trim() || `Assessment with ${validQuestions.length} questions.`,
       durationMinutes: durationMinutes,
-      totalMarks: totalMarks,
-      passMarks: passMarks,
-      totalQuestions: questions.length,
+      totalMarks: validQuestions.length * marksPerQuestion,
+      passMarks: Math.round((validQuestions.length * marksPerQuestion * passPercentage) / 100),
+      totalQuestions: validQuestions.length,
       instructions: [
-        `This test consists of ${questions.length} multiple-choice questions.`,
+        `This test consists of ${validQuestions.length} multiple-choice questions.`,
         `Each correct response awards +${marksPerQuestion} marks.`,
         `Each incorrect response incurs a penalty of -${negativeMarks} mark(s).`,
         'Ensure an uninterrupted network connection during the scheduled exam window.',

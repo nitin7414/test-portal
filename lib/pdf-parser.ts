@@ -174,9 +174,58 @@ export async function extractTextFromPdfFile(file: File): Promise<string> {
 
     let pageLines: string[] = [];
     if (isTwoColumn) {
-      const col1 = items.filter((it) => it.x <= midX);
-      const col2 = items.filter((it) => it.x > midX);
-      pageLines = [...processItemsToLines(col1), ...processItemsToLines(col2)];
+      // Assign each item to left or right column; dead-zone items go to nearest
+      const col1: PdfTextItem[] = [];
+      const col2: PdfTextItem[] = [];
+      for (const it of items) {
+        if (it.x <= midX) {
+          col1.push(it);
+        } else {
+          col2.push(it);
+        }
+      }
+
+      // Process each column into tagged lines with representative Y for interleaving
+      interface TaggedLine { y: number; text: string }
+      const tagLines = (colItems: PdfTextItem[]): TaggedLine[] => {
+        const sorted = [...colItems].sort((a, b) => {
+          const yDiff = b.y - a.y;
+          if (Math.abs(yDiff) > 4) return yDiff;
+          return a.x - b.x;
+        });
+        const result: TaggedLine[] = [];
+        let curY: number | null = null;
+        let curItems: PdfTextItem[] = [];
+        const flushLine = () => {
+          if (curItems.length === 0) return;
+          curItems.sort((a, b) => a.x - b.x);
+          let s = '';
+          for (const ci of curItems) {
+            if (s && !s.endsWith(' ') && !ci.str.startsWith(' ')) s += ' ';
+            s += ci.str;
+          }
+          if (s.trim()) result.push({ y: curY!, text: s.trim() });
+        };
+        for (const item of sorted) {
+          if (curY === null || Math.abs(item.y - curY) <= 4) {
+            curItems.push(item);
+            if (curY === null) curY = item.y;
+          } else {
+            flushLine();
+            curItems = [item];
+            curY = item.y;
+          }
+        }
+        flushLine();
+        return result;
+      };
+
+      // Interleave by Y-coordinate (top-to-bottom: higher Y first) so
+      // cross-column questions maintain reading order
+      const left = tagLines(col1);
+      const right = tagLines(col2);
+      const merged = [...left, ...right].sort((a, b) => b.y - a.y);
+      pageLines = merged.map((tl) => tl.text);
     } else {
       pageLines = processItemsToLines(items);
     }
@@ -263,45 +312,51 @@ export function unpackExtractedOptions(
   if (!options || options.length === 0) return options;
 
   const subOptionRegex =
-    /(?:^|\s+)(?:[\(\[]?([B-Fb-f2-5]|ii|iii|iv|v)[\)\].:\-–]|[\(\[]([B-Fb-f2-5])[\)\]])\s*/;
+    /(?:^|\s+)(?:[\(\[]?([B-Eb-e])[\)\].:\-–]|[\(\[]([B-Eb-e])[\)\]])\s+/;
 
   const hasEmbedded = options.some((opt) => subOptionRegex.test(opt.text));
-  if (!hasEmbedded && options.length >= 2) return options;
+  if (!hasEmbedded) return options;
 
   const unpacked: ExtractedOption[] = [];
+  const seenKeys = new Set<string>();
 
   for (const opt of options) {
     const text = (opt.text || '').trim();
     const markerRegex =
-      /(?:^|\s+)(?:[\(\[]([A-Fa-f0-9]|i{1,3}|iv|v)[\)\]]|(?:Option\s+)?([A-Fa-f0-9]|i{1,3}|iv|v)[\)\].:\-–])\s*/gi;
+      /(?:^|\s+)(?:[\(\[]([A-Ea-e])[\)\]]|(?:Option\s+)?([A-Ea-e])[\)\].:\-–])\s+/gi;
 
     const matches: { index: number; length: number; key: string }[] = [];
     let m: RegExpExecArray | null;
     while ((m = markerRegex.exec(text)) !== null) {
-      const rawKey = m[1] || m[2];
+      const rawKey = (m[1] || m[2]).toUpperCase();
       if (rawKey) {
         matches.push({
           index: m.index,
           length: m[0].length,
-          key: normalizeOptionKey(rawKey),
+          key: rawKey,
         });
       }
     }
 
     if (matches.length === 0) {
-      unpacked.push({
-        id: opt.id,
-        key: opt.key,
-        text: cleanOptionText(opt.text),
-      });
+      const key = opt.key || 'A';
+      if (!seenKeys.has(key) && unpacked.length < 5) {
+        seenKeys.add(key);
+        unpacked.push({
+          id: opt.id,
+          key,
+          text: cleanOptionText(opt.text),
+        });
+      }
     } else {
-      const initialText = text.substring(0, matches[0].index).trim();
+      const initialText = cleanOptionText(text.substring(0, matches[0].index).trim());
       const parentKey = opt.key || 'A';
-      if (initialText || parentKey) {
+      if (!seenKeys.has(parentKey) && unpacked.length < 5) {
+        seenKeys.add(parentKey);
         unpacked.push({
           id: `opt_${qNum}_${parentKey.toLowerCase()}`,
           key: parentKey,
-          text: cleanOptionText(initialText || text),
+          text: initialText || cleanOptionText(text),
         });
       }
 
@@ -309,33 +364,27 @@ export function unpackExtractedOptions(
         const cur = matches[i];
         const textStart = cur.index + cur.length;
         const textEnd = i + 1 < matches.length ? matches[i + 1].index : text.length;
-        const subText = text.substring(textStart, textEnd).trim();
+        const subText = cleanOptionText(text.substring(textStart, textEnd).trim());
         const key = cur.key;
-        unpacked.push({
-          id: `opt_${qNum}_${key.toLowerCase()}`,
-          key,
-          text: cleanOptionText(subText),
-        });
+        if (!seenKeys.has(key) && unpacked.length < 5) {
+          seenKeys.add(key);
+          unpacked.push({
+            id: `opt_${qNum}_${key.toLowerCase()}`,
+            key,
+            text: subText,
+          });
+        }
       }
     }
   }
 
-  // Deduplicate by key if duplicate keys were created
-  const seen = new Set<string>();
-  const deduped: ExtractedOption[] = [];
-  for (const item of unpacked) {
-    if (!seen.has(item.key)) {
-      seen.add(item.key);
-      deduped.push(item);
-    }
-  }
-
-  return deduped.length > 0 ? deduped : options;
+  return unpacked.length > 0 ? unpacked : options;
 }
 
 /**
  * Unpacks formal QuestionOption[] models during exam runtime or admin review.
  * Converts collapsed options like "32 B) 36 C) 38 D) 40 E) 42" into distinct options A, B, C, D, E.
+ * Strictly guarantees that options do not multiply or exceed 5 choices.
  */
 export function unpackQuestionOptions(
   options: { id: string; text: string; codeSnippet?: string }[],
@@ -344,55 +393,66 @@ export function unpackQuestionOptions(
   if (!options || options.length === 0) return options;
 
   const subOptionRegex =
-    /(?:^|\s+)(?:[\(\[]?([B-Fb-f2-5]|ii|iii|iv|v)[\)\].:\-–]|[\(\[]([B-Fb-f2-5])[\)\]])\s*/;
+    /(?:^|\s+)(?:[\(\[]?([B-Eb-e])[\)\].:\-–]|[\(\[]([B-Eb-e])[\)\]])\s+/;
 
   const hasEmbedded = options.some((opt) => subOptionRegex.test(opt.text));
-  if (!hasEmbedded && options.length >= 2) return options;
+  if (!hasEmbedded) return options;
 
   const unpacked: { id: string; text: string; codeSnippet?: string }[] = [];
+  const seenKeys = new Set<string>();
 
   options.forEach((opt, optIdx) => {
     const text = (opt.text || '').trim();
     const markerRegex =
-      /(?:^|\s+)(?:[\(\[]([A-Fa-f0-9]|i{1,3}|iv|v)[\)\]]|(?:Option\s+)?([A-Fa-f0-9]|i{1,3}|iv|v)[\)\].:\-–])\s*/gi;
+      /(?:^|\s+)(?:[\(\[]([A-Ea-e])[\)\]]|(?:Option\s+)?([A-Ea-e])[\)\].:\-–])\s+/gi;
 
     const matches: { index: number; length: number; key: string }[] = [];
     let m: RegExpExecArray | null;
     while ((m = markerRegex.exec(text)) !== null) {
-      const rawKey = m[1] || m[2];
+      const rawKey = (m[1] || m[2]).toUpperCase();
       if (rawKey) {
         matches.push({
           index: m.index,
           length: m[0].length,
-          key: normalizeOptionKey(rawKey),
+          key: rawKey,
         });
       }
     }
 
     if (matches.length === 0) {
-      unpacked.push({
-        ...opt,
-        text: cleanOptionText(opt.text),
-      });
+      const parentKey = String.fromCharCode(65 + optIdx);
+      if (!seenKeys.has(parentKey) && unpacked.length < 5) {
+        seenKeys.add(parentKey);
+        unpacked.push({
+          ...opt,
+          text: cleanOptionText(opt.text),
+        });
+      }
     } else {
-      const initialText = text.substring(0, matches[0].index).trim();
+      const initialText = cleanOptionText(text.substring(0, matches[0].index).trim());
       const parentLetter = String.fromCharCode(65 + optIdx);
-      unpacked.push({
-        id: opt.id || `${questionId}_${parentLetter.toLowerCase()}`,
-        text: cleanOptionText(initialText || text),
-        codeSnippet: opt.codeSnippet,
-      });
+      if (!seenKeys.has(parentLetter) && unpacked.length < 5) {
+        seenKeys.add(parentLetter);
+        unpacked.push({
+          id: opt.id || `${questionId}_${parentLetter.toLowerCase()}`,
+          text: initialText || cleanOptionText(text),
+          codeSnippet: opt.codeSnippet,
+        });
+      }
 
       for (let i = 0; i < matches.length; i++) {
         const cur = matches[i];
         const textStart = cur.index + cur.length;
         const textEnd = i + 1 < matches.length ? matches[i + 1].index : text.length;
-        const subText = text.substring(textStart, textEnd).trim();
+        const subText = cleanOptionText(text.substring(textStart, textEnd).trim());
         const key = cur.key;
-        unpacked.push({
-          id: `${questionId}_${key.toLowerCase()}`,
-          text: cleanOptionText(subText),
-        });
+        if (!seenKeys.has(key) && unpacked.length < 5) {
+          seenKeys.add(key);
+          unpacked.push({
+            id: `${questionId}_${key.toLowerCase()}`,
+            text: subText,
+          });
+        }
       }
     }
   });
@@ -649,86 +709,274 @@ export function parseQuestionsFromRawText(rawText: string): ParseResult {
 
   const lines = bodyText.split('\n');
 
-  // Regex to detect the start of a question:
-  // Requires an explicit delimiter (. ) : - –) so math expressions like '18 + 24 = ?' are not treated as question 18!
-  const questionStartRegex =
-    /^\s*(?:(?:Question|Que|Problem|Q)\.?\s*(\d+)[\s.:)\-–]*|(\d+)[\.:)\-–]+)\s*(.*)$/i;
-
-  interface RawBlock {
+  interface IntermediateQ {
     qNum: number;
-    lines: string[];
+    prompt: string;
+    options: { key: string; text: string; isMarkedAsterisk?: boolean }[];
+    answer?: string;
+    explanation?: string;
   }
 
-  const rawBlocks: RawBlock[] = [];
-  let currentBlock: RawBlock | null = null;
+  const intermediateList: IntermediateQ[] = [];
+
+  let currentQNum = 0;
+  let currentPromptLines: string[] = [];
+  let currentOptions: { key: string; text: string; isMarkedAsterisk?: boolean }[] = [];
+  let currentOptKey: string | null = null;
+  let currentOptText = '';
+  let currentOptHasAsterisk = false;
+  let currentAnswer = '';
+  let currentExplanation = '';
+
+  const commitOption = () => {
+    if (currentOptKey) {
+      const clean = cleanOptionText(currentOptText.trim());
+      const isMarkedAsterisk =
+        currentOptHasAsterisk ||
+        currentOptText.startsWith('*') ||
+        currentOptText.endsWith('*');
+
+      // Check for inline horizontal sub-options: e.g. "32 B) 36 C) 38 D) 40 E) 42"
+      // or "32 (B) 36 (C) 38 (D) 40 (E) 42"
+      const subOptionRegex = /(?:^|\s+)(?:[\(\[]([B-Eb-e])[\)\]]|([B-Eb-e])[\)\].:\-–])\s+/g;
+      const subMatches: { index: number; length: number; key: string }[] = [];
+      let sm: RegExpExecArray | null;
+      while ((sm = subOptionRegex.exec(clean)) !== null) {
+        const k = (sm[1] || sm[2]).toUpperCase();
+        subMatches.push({ index: sm.index, length: sm[0].length, key: k });
+      }
+
+      if (subMatches.length > 0) {
+        const firstText = cleanOptionText(clean.substring(0, subMatches[0].index).trim());
+        currentOptions.push({
+          key: currentOptKey,
+          text: firstText,
+          isMarkedAsterisk,
+        });
+        for (let i = 0; i < subMatches.length; i++) {
+          const cur = subMatches[i];
+          const start = cur.index + cur.length;
+          const end = i + 1 < subMatches.length ? subMatches[i + 1].index : clean.length;
+          const txt = cleanOptionText(clean.substring(start, end).trim());
+          currentOptions.push({ key: cur.key, text: txt });
+        }
+      } else {
+        currentOptions.push({
+          key: currentOptKey,
+          text: clean,
+          isMarkedAsterisk,
+        });
+      }
+
+      if (isMarkedAsterisk && !currentAnswer) {
+        currentAnswer = currentOptKey;
+      }
+
+      currentOptKey = null;
+      currentOptText = '';
+      currentOptHasAsterisk = false;
+    }
+  };
+
+  const commitQuestion = () => {
+    commitOption();
+    const prompt = currentPromptLines.join('\n').trim();
+    if (prompt || currentOptions.length > 0) {
+      currentQNum++;
+      // Strictly deduplicate options by key and limit to standard choices A-E (max 5)
+      const seenKeys = new Set<string>();
+      const validOptions: { key: string; text: string; isMarkedAsterisk?: boolean }[] = [];
+      for (const opt of currentOptions) {
+        if (!seenKeys.has(opt.key) && validOptions.length < 5) {
+          seenKeys.add(opt.key);
+          validOptions.push(opt);
+        }
+      }
+
+      // If fewer than 2 options were extracted, attempt prompt rescue for trapped options
+      let finalPrompt = prompt;
+      if (validOptions.length < 2 && finalPrompt) {
+        const rescued = rescueOptionsFromPrompt(finalPrompt);
+        if (rescued && rescued.options.length >= 2) {
+          finalPrompt = rescued.cleanedPrompt;
+          validOptions.length = 0;
+          for (const ro of rescued.options) {
+            if (!seenKeys.has(ro.key) && validOptions.length < 5) {
+              seenKeys.add(ro.key);
+              validOptions.push(ro);
+            }
+          }
+          if (rescued.detectedAnswer && !currentAnswer) {
+            currentAnswer = rescued.detectedAnswer;
+          }
+          if (rescued.explanation && !currentExplanation) {
+            currentExplanation = rescued.explanation;
+          }
+        }
+      }
+
+      // Check external answer key map
+      if (answerKeyMap.has(currentQNum) && !currentAnswer) {
+        currentAnswer = answerKeyMap.get(currentQNum)!;
+      }
+
+      intermediateList.push({
+        qNum: currentQNum,
+        prompt: finalPrompt || `Question ${currentQNum}`,
+        options: validOptions,
+        answer: currentAnswer || (validOptions[0]?.key || 'A'),
+        explanation: currentExplanation,
+      });
+
+      currentPromptLines = [];
+      currentOptions = [];
+      currentAnswer = '';
+      currentExplanation = '';
+    }
+  };
+
+  // Question number header: e.g. "1.", "1)", "1:", "1 -", "Question 1:", "Q.1", "Q1:"
+  // OR "1 In an array..." (number at start of line followed by space and letter)
+  const questionHeaderRegex =
+    /^\s*(?:(?:Question|Que|Problem|Q)\.?\s*(\d+)[\s.:)\-–]*|(\d+)[\.:)\-–]+|(\d+)\s+([A-Za-z].*))\s*(.*)$/i;
+
+  // Single option start: (A), A), A., A:, [A], Option A:
+  // ONLY letters A-F
+  const letterOptionStartRegex =
+    /^\s*\*?\s*(?:(?:Option|Opt|Choice)\s+)?(?:[\(\[]([A-Fa-f])[\)\]]|([A-Fa-f])[\)\].:\-–])\s*\*?\s*(.*)$/i;
+
+  // Multi inline option regex: e.g. "(A) 10 (B) 20 (C) 30 (D) 40" or "A) 10 B) 20 C) 30 D) 40"
+  const multiInlineRegex =
+    /(?:^|\s{2,}|\t|\s+)(?:[\(\[]([A-Fa-f])[\)\]]|([A-Fa-f])[\)\].:\-–])\s+/g;
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
     if (!line) continue;
 
-    // Check if this line starts a new question
-    const qMatch = line.match(questionStartRegex);
+    // 1. Check for inline answer or explanation
+    const ansMatch = line.match(inlineAnswerRegex);
+    if (ansMatch) {
+      commitOption();
+      currentAnswer = normalizeOptionKey(ansMatch[1]);
+      continue;
+    }
+    const expMatch = line.match(explanationRegex);
+    if (expMatch) {
+      commitOption();
+      currentExplanation = expMatch[1].trim();
+      continue;
+    }
+
+    // 2. Check if line starts an explicit question number (1., 2., Q1, 1 Which...)
+    const qMatch = line.match(questionHeaderRegex);
     if (qMatch) {
-      const rawNum = qMatch[1] || qMatch[2];
-      const num = parseInt(rawNum, 10);
-      const remainder = (qMatch[3] || '').trim();
-      const isExplicitQStart = /^\s*(?:Question|Que|Problem|Q\.?)\s*\d+/i.test(line);
+      let remainder = '';
+      if (qMatch[3] && qMatch[4]) {
+        remainder = `${qMatch[4]} ${qMatch[5] || ''}`.trim();
+      } else {
+        remainder = (
+          qMatch[5] ||
+          line.replace(/^\s*(?:(?:Question|Que|Problem|Q)\.?\s*\d+[\s.:)\-–]*|\d+[\.:)\-–]+)\s*/i, '')
+        ).trim();
+      }
 
-      // Check if this line looks like a question stem
-      const hasQuestionPunctuation = remainder.includes('?') || remainder.includes(':');
-      const startsWithQuestionWord =
-        /^(?:what|which|how|why|when|where|who|whom|whose|consider|calculate|find|explain|define|identify|given|if|in\b|a\b|an\b|the\b)/i.test(
-          remainder
-        );
-      const isQuestionLike =
-        isExplicitQStart || hasQuestionPunctuation || startsWithQuestionWord || remainder.length > 45;
+      // If we already have options for the current question (or are in an option), this is a NEW question!
+      if (currentOptions.length > 0 || currentOptKey) {
+        commitQuestion();
+        if (remainder) currentPromptLines.push(remainder);
+        continue;
+      }
 
-      // Check if current block already has option lines or options detected
-      const currentBlockHasOptions =
-        currentBlock &&
-        currentBlock.lines.some((l) =>
-          /^\s*\*?\s*(?:[\(\[]?[A-Fa-f][\)\].:\-–]|Option\s+[A-Fa-f])/i.test(l)
-        );
-
-      const currentBlockHasNumericOption1 =
-        currentBlock &&
-        currentBlock.lines.some((l) =>
-          /^\s*\*?\s*(?:1[\)\].:\-–]|\(1\)|\[1\])\s+[^\s]/i.test(l)
-        );
-
-      // It's a numbered option ONLY if it is short, non-question, within 1-5, and current block doesn't have letter options
-      const isNumberedOption =
-        !isExplicitQStart &&
-        !isQuestionLike &&
-        num >= 1 &&
-        num <= 5 &&
-        !currentBlockHasOptions &&
-        (currentBlockHasNumericOption1 || num === 1);
-
-      if (!isNumberedOption) {
-        if (!currentBlock || num === currentBlock.qNum + 1 || num > currentBlock.qNum) {
-          if (currentBlock) {
-            rawBlocks.push(currentBlock);
-          }
-          currentBlock = {
-            qNum: num,
-            lines: [remainder],
-          };
-          continue;
-        }
+      // If this is the start of a question block
+      if (currentPromptLines.length === 0) {
+        if (remainder) currentPromptLines.push(remainder);
+        continue;
       }
     }
 
-    if (currentBlock) {
-      currentBlock.lines.push(line);
+    // 3. Check for multi-options on a single line: "A) 10 B) 20 C) 30 D) 40"
+    const inlineMatches: { key: string; index: number; length: number }[] = [];
+    let im: RegExpExecArray | null;
+    multiInlineRegex.lastIndex = 0;
+    while ((im = multiInlineRegex.exec(line)) !== null) {
+      const k = normalizeOptionKey(im[1] || im[2]);
+      inlineMatches.push({ key: k, index: im.index, length: im[0].length });
+    }
+
+    if (inlineMatches.length >= 2 && inlineMatches[0].key === 'A') {
+      // If current question already has options, commit previous question first!
+      if (currentOptions.length > 0 || currentOptKey) {
+        commitQuestion();
+      }
+      commitOption();
+
+      const prefix = line.substring(0, inlineMatches[0].index).trim();
+      if (prefix) {
+        currentPromptLines.push(prefix);
+      }
+
+      for (let j = 0; j < inlineMatches.length; j++) {
+        const cur = inlineMatches[j];
+        const start = cur.index + cur.length;
+        const end = j + 1 < inlineMatches.length ? inlineMatches[j + 1].index : line.length;
+        const txt = cleanOptionText(line.substring(start, end).trim());
+        currentOptions.push({ key: cur.key, text: txt });
+      }
+      continue;
+    }
+
+    // 4. Check for single option: "A) ...", "(A) ...", "A. ..."
+    const optMatch = line.match(letterOptionStartRegex);
+    if (optMatch) {
+      const key = normalizeOptionKey(optMatch[1] || optMatch[2]);
+
+      // SHARP QUESTION BOUNDARY ENFORCEMENT:
+      // If this question already has this option key (e.g. key is 'A' and we already parsed 'A', 'B', 'C', 'D'),
+      // or if we have at least 3 options and 'A' arrives:
+      // Then this line CANNOT belong to the current question. It is the start of the NEXT question's options!
+      const alreadyHasKey = currentOptions.some((o) => o.key === key) || currentOptKey === key;
+      if (alreadyHasKey || (key === 'A' && currentOptions.length >= 2)) {
+        commitQuestion();
+      }
+
+      commitOption();
+      currentOptKey = key;
+      currentOptText = optMatch[3] ? optMatch[3].trim() : '';
+      currentOptHasAsterisk = line.includes('*');
+      continue;
+    }
+
+    // 5. Regular text line
+    if (currentOptKey) {
+      // Check if this line looks like a question prompt that didn't have a question number
+      // occurring after options A, B, C, D have already been accumulated.
+      // This is the primary fix for PDFs where questions appear without numbered headers.
+      const hasSufficientOptions =
+        currentOptions.length >= 3 || currentOptKey === 'D' || currentOptKey === 'E';
+      const isQuestionStem =
+        line.endsWith('?') ||
+        line.endsWith(':') ||
+        /^(?:what|which|how|why|when|where|who|whom|whose|calculate|find|simplify|solve|evaluate|determine|identify|select|choose|consider|the\b|a\b|an\b|if\b|in\b|for\b|given\b|suppose\b|assume\b|according\b|among\b|between\b)/i.test(
+          line
+        ) ||
+        // Lines that are long enough to be a question and don't look like option continuations
+        (line.length > 40 && !line.match(/^\s*[a-d]\s/i));
+
+      if (hasSufficientOptions && isQuestionStem) {
+        commitQuestion();
+        currentPromptLines.push(line);
+        continue;
+      }
+
+      currentOptText += ' ' + line;
+    } else {
+      currentPromptLines.push(line);
     }
   }
 
-  if (currentBlock) {
-    rawBlocks.push(currentBlock);
-  }
+  commitQuestion();
 
-  if (rawBlocks.length === 0) {
+  if (intermediateList.length === 0) {
     warnings.push(
       'Could not detect standard numbered questions (1., 2., Q1.). Review raw text or use AI extraction.'
     );
@@ -736,169 +984,18 @@ export function parseQuestionsFromRawText(rawText: string): ParseResult {
 
   let identifiedAnswersCount = 0;
 
-  // Process each question block
-  rawBlocks.forEach((block, idx) => {
-    const qNum = block.qNum || idx + 1;
-    let promptLines: string[] = [];
-    const optionsMap: { key: string; text: string; isMarkedAsterisk?: boolean }[] = [];
-    let detectedAnswer = '';
-    let explanation = '';
-
-    let parsingOptions = false;
-    let currentOptKey: string | null = null;
-    let currentOptText = '';
-    let currentOptHasAsterisk = false;
-
-    // Check if the answer key map has this question
-    if (answerKeyMap.has(qNum)) {
-      detectedAnswer = answerKeyMap.get(qNum)!;
-    }
-
-    const commitCurrentOption = () => {
-      if (currentOptKey) {
-        const isMarkedAsterisk =
-          currentOptHasAsterisk ||
-          currentOptText.startsWith('*') ||
-          currentOptText.endsWith('*');
-        const clean = cleanOptionText(currentOptText);
-
-        // Check if clean itself contains collapsed sub-options like "32 B) 36 C) 38 D) 40 E) 42"
-        const subUnpacked = unpackExtractedOptions(
-          [{ id: `opt_${qNum}_${currentOptKey.toLowerCase()}`, key: currentOptKey, text: clean }],
-          qNum
-        );
-
-        if (subUnpacked.length > 1) {
-          for (const s of subUnpacked) {
-            optionsMap.push({
-              key: s.key,
-              text: s.text,
-              isMarkedAsterisk: s.key === currentOptKey ? isMarkedAsterisk : false,
-            });
-          }
-        } else {
-          optionsMap.push({
-            key: currentOptKey,
-            text: clean,
-            isMarkedAsterisk,
-          });
-        }
-
-        if (isMarkedAsterisk && !detectedAnswer) {
-          detectedAnswer = currentOptKey;
-        }
-        currentOptKey = null;
-        currentOptText = '';
-        currentOptHasAsterisk = false;
-      }
-    };
-
-    for (const rawLine of block.lines) {
-      const line = rawLine.trim();
-      if (!line) continue;
-
-      // 1. Check for inline answer indicator
-      const ansMatch = line.match(inlineAnswerRegex);
-      if (ansMatch) {
-        detectedAnswer = normalizeOptionKey(ansMatch[1]);
-        continue;
-      }
-
-      // 2. Check for explanation indicator
-      const expMatch = line.match(explanationRegex);
-      if (expMatch) {
-        commitCurrentOption();
-        explanation = expMatch[1] || '';
-        continue;
-      }
-
-      // 3. Check for multiple inline options (e.g. "(A) Apple  (B) Banana  (C) Carrot  (D) Date")
-      const multi = parseMultipleInlineOptions(line);
-      if (multi && multi.options.length >= 2) {
-        commitCurrentOption();
-        if (multi.prefixText) {
-          promptLines.push(multi.prefixText);
-        }
-        parsingOptions = true;
-        for (const m of multi.options) {
-          optionsMap.push(m);
-          if (m.isMarkedAsterisk && !detectedAnswer) {
-            detectedAnswer = m.key;
-          }
-        }
-        continue;
-      }
-
-      // 4. Check for single option start (e.g. "(A) Option text" or "A. Option text" or "1) Option text")
-      const optMatch = line.match(singleOptionStartRegex);
-      if (optMatch) {
-        const rawKey = optMatch[1] || optMatch[2];
-        const normalizedKey = normalizeOptionKey(rawKey);
-
-        if (['A', 'B', 'C', 'D', 'E', 'F'].includes(normalizedKey)) {
-          commitCurrentOption();
-          parsingOptions = true;
-          currentOptKey = normalizedKey;
-          currentOptText = optMatch[3] ? optMatch[3].trim() : '';
-          currentOptHasAsterisk = line.includes('*');
-          continue;
-        }
-      }
-
-      // If we are currently accumulating an option, append to it
-      if (parsingOptions && currentOptKey) {
-        currentOptText += ' ' + line;
-      } else {
-        // Accumulating prompt
-        promptLines.push(line);
-      }
-    }
-
-    commitCurrentOption();
-
-    let prompt = promptLines.join('\n').trim();
-
-    // 5. PROMPT RESCUE SCANNER:
-    // If fewer than 2 options were detected, check if options were trapped inside prompt text
-    if (optionsMap.length < 2 && prompt) {
-      const rescued = rescueOptionsFromPrompt(prompt);
-      if (rescued && rescued.options.length >= 2) {
-        prompt = rescued.cleanedPrompt;
-        optionsMap.length = 0;
-        optionsMap.push(...rescued.options);
-        if (rescued.detectedAnswer && !detectedAnswer) {
-          detectedAnswer = rescued.detectedAnswer;
-        }
-        if (rescued.explanation && !explanation) {
-          explanation = rescued.explanation;
-        }
-      }
-    }
-
-    // Default to 'A' if no answer was detected anywhere
-    if (detectedAnswer) {
+  intermediateList.forEach((item, idx) => {
+    const qNum = item.qNum || idx + 1;
+    if (item.answer) {
       identifiedAnswersCount++;
-    } else {
-      detectedAnswer = optionsMap.length > 0 ? optionsMap[0].key : 'A';
     }
 
-    // Unpack any collapsed options
-    const fullyUnpacked = unpackExtractedOptions(
-      optionsMap.map((opt) => ({
-        id: `opt_${qNum}_${opt.key.toLowerCase()}`,
-        key: opt.key,
-        text: cleanOptionText(opt.text),
-      })),
-      qNum
-    );
-
-    const formattedOptions: ExtractedOption[] = fullyUnpacked.map((opt) => ({
-      id: opt.id,
+    const formattedOptions: ExtractedOption[] = item.options.map((opt) => ({
+      id: `opt_${qNum}_${opt.key.toLowerCase()}`,
       key: opt.key,
       text: opt.text || `Option ${opt.key}`,
     }));
 
-    // If fewer than 4 options were found, ensure at least standard A, B, C, D exist for editing
     if (formattedOptions.length === 0) {
       warnings.push(`Question ${qNum} has no standard options detected. Review manually.`);
       ['A', 'B', 'C', 'D'].forEach((k) => {
@@ -913,11 +1010,12 @@ export function parseQuestionsFromRawText(rawText: string): ParseResult {
     questions.push({
       id: `q_parsed_${qNum}_${Date.now()}_${idx}`,
       questionNumber: qNum,
-      prompt: prompt || `Question ${qNum}`,
+      prompt: item.prompt || `Question ${qNum}`,
       options: formattedOptions,
-      correctOptionKey: detectedAnswer,
+      correctOptionKey: item.answer || 'A',
       explanation:
-        explanation || 'Refer to the assessment reference materials for detailed solution rationale.',
+        item.explanation ||
+        'Refer to the assessment reference materials for detailed solution rationale.',
       marks: 4,
       negativeMarks: 1,
     });

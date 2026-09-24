@@ -32,16 +32,18 @@ export const getTest = query({
 
     if (byTestId) return byTestId;
 
-    const all = await ctx.db.query('tests').collect();
-    return (
-      all.find(
-        (t) =>
-          t._id.toString() === args.testId ||
-          t.testId === args.testId ||
-          t.code.toUpperCase() === args.testId.toUpperCase() ||
-          t.title.toLowerCase().includes(args.testId.toLowerCase())
-      ) || null
-    );
+    const id = ctx.db.normalizeId('tests', args.testId);
+    if (id) {
+      const byId = await ctx.db.get(id);
+      if (byId) return byId;
+    }
+
+    const byCode = await ctx.db
+      .query('tests')
+      .withIndex('by_code', (q) => q.eq('code', args.testId.toUpperCase()))
+      .first();
+
+    return byCode || null;
   },
 });
 
@@ -126,27 +128,39 @@ export const deleteTest = mutation({
     testId: v.string(),
   },
   handler: async (ctx, args) => {
-    const tests = await ctx.db.query('tests').collect();
-    const matching = tests.filter(
-      (t) =>
-        t.testId === args.testId ||
-        t._id.toString() === args.testId ||
-        t.code.toUpperCase() === args.testId.toUpperCase()
-    );
+    let testDoc = await ctx.db
+      .query('tests')
+      .withIndex('by_testId', (q) => q.eq('testId', args.testId))
+      .first();
 
-    let deletedCount = 0;
-    for (const t of matching) {
-      await ctx.db.delete(t._id);
-      deletedCount++;
-
-      // Clean up legacy questions if any were keyed by testId
-      const questions = await ctx.db
-        .query('questions')
-        .withIndex('by_test', (q) => q.eq('testId', t.testId))
-        .collect();
-      for (const q of questions) {
-        await ctx.db.delete(q._id);
+    if (!testDoc) {
+      const id = ctx.db.normalizeId('tests', args.testId);
+      if (id) {
+        testDoc = await ctx.db.get(id);
       }
+    }
+
+    if (!testDoc) {
+      testDoc = await ctx.db
+        .query('tests')
+        .withIndex('by_code', (q) => q.eq('code', args.testId.toUpperCase()))
+        .first();
+    }
+
+    if (!testDoc) {
+      return { success: false, deletedCount: 0 };
+    }
+
+    await ctx.db.delete(testDoc._id);
+    let deletedCount = 1;
+
+    // Clean up legacy questions if any were keyed by testId
+    const questions = await ctx.db
+      .query('questions')
+      .withIndex('by_test', (q) => q.eq('testId', testDoc.testId))
+      .collect();
+    for (const q of questions) {
+      await ctx.db.delete(q._id);
     }
 
     return { success: true, count: deletedCount };

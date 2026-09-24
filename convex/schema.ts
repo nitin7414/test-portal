@@ -28,6 +28,7 @@ export default defineSchema({
     createdAt: v.string(),
   })
     .index('by_testId', ['testId'])
+    .index('by_code', ['code'])
     .index('by_status', ['status']),
 
   questions: defineTable({

@@ -365,12 +365,12 @@ function saveTestOverride(testId: string, patch: Partial<TestMetadata>) {
       if (patch.status) {
         client
           .mutation(api.tests.updateTestStatus, { testId, status: patch.status as any })
-          .catch(() => {});
+          .catch((err) => console.warn('Failed to sync test status with Convex:', err));
       }
       if (patch.durationMinutes) {
         client
           .mutation(api.tests.updateTestDuration, { testId, durationMinutes: patch.durationMinutes })
-          .catch(() => {});
+          .catch((err) => console.warn('Failed to sync test duration with Convex:', err));
       }
       if (
         patch.scheduledDate !== undefined ||
@@ -388,11 +388,11 @@ function saveTestOverride(testId: string, patch: Partial<TestMetadata>) {
             status: patch.status as any,
             durationMinutes: patch.durationMinutes,
           })
-          .catch(() => {});
+          .catch((err) => console.warn('Failed to sync schedule/access with Convex:', err));
       }
     }
-  } catch {
-    /* silent */
+  } catch (err) {
+    console.error('Failed to patch custom test:', err);
   }
 }
 
@@ -440,10 +440,10 @@ export function isTestVisibleToStudent(
   test: TestMetadata,
   student?: { id?: string; studentId?: string; email?: string } | null
 ): boolean {
-  if (!student) return true;
   if (!test.targetAudience || test.targetAudience === 'all') {
     return true;
   }
+  if (!student) return false;
   const assigned = test.assignedStudentIds || [];
   if (assigned.length === 0) return true;
   return assigned.some(
