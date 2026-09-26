@@ -90,15 +90,16 @@ export default function CandidateResponsePage() {
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-slate-900 flex flex-col justify-between">
       {/* Top Floating Navigation Header */}
-      <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-slate-200/90 px-4 sm:px-8 py-3.5">
-        <div className="max-w-7xl mx-auto flex items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
+      <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-slate-200/90 px-3 sm:px-8 py-3 sm:py-3.5">
+        <div className="max-w-7xl mx-auto flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <Link
               href="/"
-              className="flex items-center gap-1.5 text-xs font-bold text-slate-700 hover:text-black bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-xl transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 text-xs font-bold text-slate-700 hover:text-black bg-slate-100 hover:bg-slate-200 px-2.5 sm:px-3 py-1.5 rounded-xl transition-colors cursor-pointer shrink-0"
             >
               <ChevronLeftIcon size={15} />
-              <span>Back to Dashboard</span>
+              <span className="hidden xs:inline">Back to Dashboard</span>
+              <span className="xs:hidden">Back</span>
             </Link>
 
             <div className="h-4 w-px bg-slate-200 hidden sm:block" />
@@ -112,23 +113,25 @@ export default function CandidateResponsePage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2 sm:gap-3">
+          <div className="flex items-center gap-2 sm:gap-3 shrink-0">
             <Button
               variant="secondary"
               size="sm"
               onClick={() => setRetakeModalOpen(true)}
               leftIcon={<RotateCcwIcon size={14} />}
+              className="text-xs px-2.5 sm:px-3"
             >
-              Retake Test
+              <span className="hidden xs:inline">Retake Test</span>
+              <span className="xs:hidden">Retake</span>
             </Button>
           </div>
         </div>
       </header>
 
       {/* Main Content Body */}
-      <main className="max-w-5xl mx-auto w-full px-4 sm:px-8 py-8 space-y-6 flex-1">
+      <main className="max-w-5xl mx-auto w-full px-3.5 sm:px-8 py-5 sm:py-8 space-y-5 sm:space-y-6 flex-1">
         {/* Top Hero Scorecard */}
-        <section className="bg-white rounded-3xl border border-slate-200/90 p-6 sm:p-8 shadow-sm relative overflow-hidden">
+        <section className="bg-white rounded-2xl sm:rounded-3xl border border-slate-200/90 p-4 sm:p-8 shadow-xs relative overflow-hidden">
           {/* Subtle accent bar */}
           <div className="h-1.5 w-full bg-gradient-to-r from-emerald-500 via-blue-500 to-indigo-600 absolute top-0 left-0" />
 
@@ -278,11 +281,11 @@ export default function CandidateResponsePage() {
             </div>
 
             {/* Filter Buttons */}
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 overflow-x-auto no-scrollbar whitespace-nowrap py-0.5 max-w-full">
               <button
                 type="button"
                 onClick={() => setActiveFilter('all')}
-                className={`text-xs font-semibold px-3 py-1.5 rounded-xl transition-colors cursor-pointer ${
+                className={`text-xs font-semibold px-3 py-1.5 rounded-xl transition-colors cursor-pointer shrink-0 ${
                   activeFilter === 'all'
                     ? 'bg-black text-white'
                     : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
@@ -293,7 +296,7 @@ export default function CandidateResponsePage() {
               <button
                 type="button"
                 onClick={() => setActiveFilter('correct')}
-                className={`text-xs font-semibold px-3 py-1.5 rounded-xl transition-colors cursor-pointer flex items-center gap-1 ${
+                className={`text-xs font-semibold px-3 py-1.5 rounded-xl transition-colors cursor-pointer flex items-center gap-1 shrink-0 ${
                   activeFilter === 'correct'
                     ? 'bg-emerald-700 text-white'
                     : 'bg-white text-emerald-700 border border-emerald-200 hover:bg-emerald-50'
@@ -305,7 +308,7 @@ export default function CandidateResponsePage() {
               <button
                 type="button"
                 onClick={() => setActiveFilter('incorrect')}
-                className={`text-xs font-semibold px-3 py-1.5 rounded-xl transition-colors cursor-pointer flex items-center gap-1 ${
+                className={`text-xs font-semibold px-3 py-1.5 rounded-xl transition-colors cursor-pointer flex items-center gap-1 shrink-0 ${
                   activeFilter === 'incorrect'
                     ? 'bg-rose-700 text-white'
                     : 'bg-white text-rose-700 border border-rose-200 hover:bg-rose-50'
@@ -400,8 +403,8 @@ const QuestionDetailCard: React.FC<QuestionDetailCardProps> = ({
       }`}
     >
       {/* Top Meta */}
-      <div className="flex items-center justify-between gap-3 mb-3">
-        <div className="flex items-center gap-2 flex-wrap">
+      <div className="flex flex-wrap items-center justify-between gap-2.5 mb-3">
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
           <span className="font-extrabold text-xs bg-slate-900 text-white px-2.5 py-1 rounded-lg">
             Question {questionIndex}
           </span>
@@ -417,7 +420,7 @@ const QuestionDetailCard: React.FC<QuestionDetailCardProps> = ({
           </span>
         </div>
 
-        <div className="flex items-center gap-3 text-xs font-semibold">
+        <div className="flex items-center gap-2.5 text-xs font-semibold shrink-0">
           <span className={isCorrect ? 'text-emerald-700' : 'text-rose-700'}>
             {question.marksAwarded > 0 ? `+${question.marksAwarded}` : '0'} / {question.maxMarks} Marks
           </span>

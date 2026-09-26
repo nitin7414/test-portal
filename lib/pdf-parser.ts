@@ -14,6 +14,8 @@ export interface ExtractedOption {
 export interface ExtractedQuestion {
   id: string;
   questionNumber: number;
+  sectionTitle?: string;
+  passageContext?: string;
   prompt: string;
   codeSnippet?: string;
   options: ExtractedOption[];
@@ -21,6 +23,13 @@ export interface ExtractedQuestion {
   explanation: string;
   marks: number;
   negativeMarks: number;
+  needsReview?: boolean;
+  reviewReasons?: string[];
+}
+
+export interface ParseOptions {
+  expectedOptionsCount?: number; // 4 or 5 (auto-inferred if omitted)
+  maxOptionLength?: number; // default 150
 }
 
 export interface ParseResult {
@@ -28,6 +37,7 @@ export interface ParseResult {
   rawText: string;
   totalQuestions: number;
   identifiedAnswersCount: number;
+  flaggedQuestionsCount: number;
   warnings: string[];
 }
 
@@ -688,15 +698,261 @@ function rescueOptionsFromPrompt(fullPrompt: string): PromptRescueResult | null 
   return null;
 }
 
+// Section & Passage Boundary Regexes for Pre-Segmentation
+const SECTION_HEADER_REGEX =
+  /^\s*(?:(?:SECTION|Section)\s*(?:[A-Za-z0-9]+|:\s*[A-Za-z\s&]+)|(?:PART|Part)\s*[A-Za-z0-9]+)(?:[\s—–\-:]+(.*))?$/i;
+
+const SUBJECT_HEADER_REGEX =
+  /^\s*(?:Quantitative Aptitude|Reasoning Ability|English Language|General English|Reading Comprehension|Verbal Ability(?: and Reading Comprehension)?|Data Interpretation(?: and Logical Reasoning)?|General Awareness|Current Affairs|General Knowledge|Computer Aptitude|Financial Awareness|Simplification)(?:\s*[\(—–\-].*)?$/i;
+
+const DIRECTIONS_PASSAGE_REGEX =
+  /^\s*(?:(?:DIRECTIONS|Directions)\s*(?:for\s+(?:the\s+)?questions?|for\s+Q\.?|\(Q(?:s)?\.?\s*\d+[\s–\-to]+\d+\)|[:\-–])|(?:Passage|PASSAGE)\s*(?:\d+|[:\-–]|\(Q(?:s)?\.?\s*\d+[\s–\-to]+\d+\))?|Read the following (?:passage|information|text|graph|chart|data|table|case)|Study the following (?:information|data|table|graph|chart|passage)|Questions?\s+(?:\d+\s+(?:to|through|–|-)\s+\d+|\d+\s*-\s*\d+)\s+(?:are based on|refer to))\s*(.*)$/i;
+
+const PAGE_FOOTER_REGEX =
+  /^\s*(?:--\s*\d+\s+of\s+\d+\s*--|Page\s+\d+(?:\s+of\s+\d+)?|\d+\s+of\s+\d+)\s*$/i;
+
+export interface PreSegmentedBlock {
+  type: 'SECTION_HEADER' | 'PASSAGE' | 'QUESTION_BLOCK';
+  title?: string;
+  passageText?: string;
+  lines: string[];
+}
+
 /**
- * Sharpened Question & Option Parser
- * Accurately extracts questions, options, correct answers, and explanations.
+ * Pre-segment raw document text into discrete blocks BEFORE individual question parsing.
+ * Detects section headers, reading comprehension passages, directions blocks, and neutralizes page footers.
  */
-export function parseQuestionsFromRawText(rawText: string): ParseResult {
+export function preSegmentDocument(rawText: string): PreSegmentedBlock[] {
+  const rawLines = rawText.split('\n');
+  const blocks: PreSegmentedBlock[] = [];
+
+  let currentBlock: PreSegmentedBlock = {
+    type: 'QUESTION_BLOCK',
+    lines: [],
+  };
+
+  const questionHeaderRegex =
+    /^\s*(?:(?:Question|Que|Problem|Q)\.?\s*(\d+)[\s.:)\-–]*|(\d+)[\.:)\-–]+|(\d+)\s+([A-Za-z].*))\s*(.*)$/i;
+
+  let activeSection = '';
+
+  for (let i = 0; i < rawLines.length; i++) {
+    const line = rawLines[i].trim();
+    if (!line) continue;
+
+    // Ignore page footers/headers: e.g. "-- 1 of 4 --"
+    if (PAGE_FOOTER_REGEX.test(line)) {
+      continue;
+    }
+
+    // 1. Check for Section Header
+    const secMatch = line.match(SECTION_HEADER_REGEX);
+    const subjMatch = line.match(SUBJECT_HEADER_REGEX);
+    if (secMatch || subjMatch) {
+      if (currentBlock.lines.length > 0) {
+        blocks.push(currentBlock);
+      }
+      activeSection = line;
+      currentBlock = {
+        type: 'SECTION_HEADER',
+        title: line,
+        lines: [line],
+      };
+      blocks.push(currentBlock);
+      currentBlock = {
+        type: 'QUESTION_BLOCK',
+        title: activeSection,
+        lines: [],
+      };
+      continue;
+    }
+
+    // 2. Check for Directions / Passage Header
+    const dirMatch = line.match(DIRECTIONS_PASSAGE_REGEX);
+    if (dirMatch) {
+      if (currentBlock.lines.length > 0) {
+        blocks.push(currentBlock);
+      }
+      const passageLines = [line];
+      let j = i + 1;
+      while (j < rawLines.length) {
+        const nextLine = rawLines[j].trim();
+        if (PAGE_FOOTER_REGEX.test(nextLine)) {
+          j++;
+          continue;
+        }
+        if (SECTION_HEADER_REGEX.test(nextLine) || SUBJECT_HEADER_REGEX.test(nextLine)) {
+          break;
+        }
+        if (questionHeaderRegex.test(nextLine)) {
+          break;
+        }
+        if (nextLine) {
+          passageLines.push(nextLine);
+        }
+        j++;
+      }
+      i = j - 1;
+      const passageText = passageLines.join('\n');
+      blocks.push({
+        type: 'PASSAGE',
+        title: activeSection,
+        passageText,
+        lines: passageLines,
+      });
+      currentBlock = {
+        type: 'QUESTION_BLOCK',
+        title: activeSection,
+        passageText,
+        lines: [],
+      };
+      continue;
+    }
+
+    // 3. Regular lines belonging to current question block
+    currentBlock.lines.push(line);
+  }
+
+  if (currentBlock.lines.length > 0) {
+    blocks.push(currentBlock);
+  }
+
+  return blocks;
+}
+
+/**
+ * Sanity check on option text:
+ * Rejects options whose length exceeds max threshold, contains multiple complete sentences,
+ * or contains section/passage keyword markers.
+ */
+export function sanityCheckOptionText(
+  text: string,
+  maxLength = 150
+): { valid: boolean; reason?: string } {
+  const clean = text.trim();
+  if (!clean) return { valid: true };
+
+  // 1. Length check: real MCQ options are concise (typically under 150 chars)
+  if (clean.length > maxLength) {
+    return {
+      valid: false,
+      reason: `Option text exceeds length limit (${clean.length} > ${maxLength} chars)`,
+    };
+  }
+
+  // 2. Sentence count check: options rarely have 2+ complete sentences
+  const sentenceEndings = clean.match(/[.!?](?:\s+[A-Z]|\s*$)/g);
+  if (sentenceEndings && sentenceEndings.length >= 2) {
+    return {
+      valid: false,
+      reason: `Option text contains multiple sentences (${sentenceEndings.length} sentences)`,
+    };
+  }
+
+  // 3. Section/Passage keywords forbidden in option text
+  if (
+    /(?:section\s+[a-z]|reading comprehension|directions(?:\s*\(|:)|read the following|study the following|passage\s*[:\d]|questions?\s+\d+\s*[-–to]\s*\d+)/i.test(
+      clean
+    )
+  ) {
+    return {
+      valid: false,
+      reason: `Option text contains section/passage keyword marker`,
+    };
+  }
+
+  return { valid: true };
+}
+
+/**
+ * Infer expected option count (4 vs 5) from document option frequency.
+ */
+export function inferExpectedOptionCount(rawText: string): number {
+  const eMatches = rawText.match(/(?:^|\s|\t)(?:[\(\[]E[\)\]]|E[\)\].:\-–])\s+/gi);
+  const dMatches = rawText.match(/(?:^|\s|\t)(?:[\(\[]D[\)\]]|D[\)\].:\-–])\s+/gi);
+  const eCount = eMatches ? eMatches.length : 0;
+  const dCount = dMatches ? dMatches.length : 0;
+
+  if (dCount > 0 && eCount / dCount >= 0.35) {
+    return 5;
+  }
+  return 4;
+}
+
+export interface QuestionValidation {
+  needsReview: boolean;
+  errors: string[];
+  warnings: string[];
+}
+
+/**
+ * Run comprehensive validation on an extracted question object.
+ */
+export function validateExtractedQuestion(
+  q: ExtractedQuestion,
+  expectedOptionCount = 4,
+  maxOptionLength = 150
+): QuestionValidation {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  // Option count validation
+  if (q.options.length !== expectedOptionCount) {
+    errors.push(
+      `Option count mismatch: has ${q.options.length} options, expected exactly ${expectedOptionCount}`
+    );
+  }
+
+  // Option text validation
+  for (const opt of q.options) {
+    if (opt.text.length > maxOptionLength) {
+      errors.push(
+        `Option [${opt.key}] length exceeds limit: ${opt.text.length} chars (max ${maxOptionLength})`
+      );
+    }
+    const sanity = sanityCheckOptionText(opt.text, maxOptionLength);
+    if (!sanity.valid && sanity.reason) {
+      errors.push(`Option [${opt.key}]: ${sanity.reason}`);
+    }
+    if (opt.text.startsWith('Option ') && opt.text.length < 10) {
+      warnings.push(`Option [${opt.key}] has placeholder text: "${opt.text}"`);
+    }
+  }
+
+  // Prompt validation
+  if (!q.prompt || q.prompt.trim().length === 0 || q.prompt === `Question ${q.questionNumber}`) {
+    errors.push('Empty or placeholder prompt');
+  }
+
+  // Prompt must not contain raw section header delimiters
+  if (/(?:^|\n)\s*(?:SECTION|Section)\s+[A-Za-z0-9]+(?:\s*[:—–\-])/i.test(q.prompt)) {
+    warnings.push('Prompt contains raw section marker keyword');
+  }
+
+  // Correct answer check
+  if (!q.correctOptionKey || !q.options.some((o) => o.key === q.correctOptionKey)) {
+    errors.push(`Designated correct answer "${q.correctOptionKey}" does not match any valid option`);
+  }
+
+  const needsReview = errors.length > 0 || warnings.length > 0;
+  return { needsReview, errors, warnings };
+}
+
+/**
+ * Robust Pre-Segmented Question & Option Parser
+ * Accurately extracts questions, options, correct answers, and explanations
+ * with zero cross-section/passage leakage and hard option caps.
+ */
+export function parseQuestionsFromRawText(rawText: string, options?: ParseOptions): ParseResult {
   const text = normalizeText(rawText);
   const answerKeyMap = extractAnswerKeyMap(text);
   const questions: ExtractedQuestion[] = [];
   const warnings: string[] = [];
+
+  // Inferred or user-specified expected option count
+  const expectedOptionsCount =
+    options?.expectedOptionsCount || inferExpectedOptionCount(text) || 4;
+  const maxOptionLength = options?.maxOptionLength || 150;
 
   // Remove the answer key section from the main text body so it doesn't get parsed as questions
   let bodyText = text;
@@ -707,325 +963,287 @@ export function parseQuestionsFromRawText(rawText: string): ParseResult {
     bodyText = text.substring(0, keyHeaderIdx);
   }
 
-  const lines = bodyText.split('\n');
+  // Pre-segment document into isolated blocks
+  const blocks = preSegmentDocument(bodyText);
 
-  interface IntermediateQ {
-    qNum: number;
-    prompt: string;
-    options: { key: string; text: string; isMarkedAsterisk?: boolean }[];
-    answer?: string;
-    explanation?: string;
-  }
-
-  const intermediateList: IntermediateQ[] = [];
-
-  let currentQNum = 0;
-  let currentPromptLines: string[] = [];
-  let currentOptions: { key: string; text: string; isMarkedAsterisk?: boolean }[] = [];
-  let currentOptKey: string | null = null;
-  let currentOptText = '';
-  let currentOptHasAsterisk = false;
-  let currentAnswer = '';
-  let currentExplanation = '';
-
-  const commitOption = () => {
-    if (currentOptKey) {
-      const clean = cleanOptionText(currentOptText.trim());
-      const isMarkedAsterisk =
-        currentOptHasAsterisk ||
-        currentOptText.startsWith('*') ||
-        currentOptText.endsWith('*');
-
-      // Check for inline horizontal sub-options: e.g. "32 B) 36 C) 38 D) 40 E) 42"
-      // or "32 (B) 36 (C) 38 (D) 40 (E) 42"
-      const subOptionRegex = /(?:^|\s+)(?:[\(\[]([B-Eb-e])[\)\]]|([B-Eb-e])[\)\].:\-–])\s+/g;
-      const subMatches: { index: number; length: number; key: string }[] = [];
-      let sm: RegExpExecArray | null;
-      while ((sm = subOptionRegex.exec(clean)) !== null) {
-        const k = (sm[1] || sm[2]).toUpperCase();
-        subMatches.push({ index: sm.index, length: sm[0].length, key: k });
-      }
-
-      if (subMatches.length > 0) {
-        const firstText = cleanOptionText(clean.substring(0, subMatches[0].index).trim());
-        currentOptions.push({
-          key: currentOptKey,
-          text: firstText,
-          isMarkedAsterisk,
-        });
-        for (let i = 0; i < subMatches.length; i++) {
-          const cur = subMatches[i];
-          const start = cur.index + cur.length;
-          const end = i + 1 < subMatches.length ? subMatches[i + 1].index : clean.length;
-          const txt = cleanOptionText(clean.substring(start, end).trim());
-          currentOptions.push({ key: cur.key, text: txt });
-        }
-      } else {
-        currentOptions.push({
-          key: currentOptKey,
-          text: clean,
-          isMarkedAsterisk,
-        });
-      }
-
-      if (isMarkedAsterisk && !currentAnswer) {
-        currentAnswer = currentOptKey;
-      }
-
-      currentOptKey = null;
-      currentOptText = '';
-      currentOptHasAsterisk = false;
-    }
-  };
-
-  const commitQuestion = () => {
-    commitOption();
-    const prompt = currentPromptLines.join('\n').trim();
-    if (prompt || currentOptions.length > 0) {
-      currentQNum++;
-      // Strictly deduplicate options by key and limit to standard choices A-E (max 5)
-      const seenKeys = new Set<string>();
-      const validOptions: { key: string; text: string; isMarkedAsterisk?: boolean }[] = [];
-      for (const opt of currentOptions) {
-        if (!seenKeys.has(opt.key) && validOptions.length < 5) {
-          seenKeys.add(opt.key);
-          validOptions.push(opt);
-        }
-      }
-
-      // If fewer than 2 options were extracted, attempt prompt rescue for trapped options
-      let finalPrompt = prompt;
-      if (validOptions.length < 2 && finalPrompt) {
-        const rescued = rescueOptionsFromPrompt(finalPrompt);
-        if (rescued && rescued.options.length >= 2) {
-          finalPrompt = rescued.cleanedPrompt;
-          validOptions.length = 0;
-          for (const ro of rescued.options) {
-            if (!seenKeys.has(ro.key) && validOptions.length < 5) {
-              seenKeys.add(ro.key);
-              validOptions.push(ro);
-            }
-          }
-          if (rescued.detectedAnswer && !currentAnswer) {
-            currentAnswer = rescued.detectedAnswer;
-          }
-          if (rescued.explanation && !currentExplanation) {
-            currentExplanation = rescued.explanation;
-          }
-        }
-      }
-
-      // Check external answer key map
-      if (answerKeyMap.has(currentQNum) && !currentAnswer) {
-        currentAnswer = answerKeyMap.get(currentQNum)!;
-      }
-
-      intermediateList.push({
-        qNum: currentQNum,
-        prompt: finalPrompt || `Question ${currentQNum}`,
-        options: validOptions,
-        answer: currentAnswer || (validOptions[0]?.key || 'A'),
-        explanation: currentExplanation,
-      });
-
-      currentPromptLines = [];
-      currentOptions = [];
-      currentAnswer = '';
-      currentExplanation = '';
-    }
-  };
-
-  // Question number header: e.g. "1.", "1)", "1:", "1 -", "Question 1:", "Q.1", "Q1:"
-  // OR "1 In an array..." (number at start of line followed by space and letter)
   const questionHeaderRegex =
     /^\s*(?:(?:Question|Que|Problem|Q)\.?\s*(\d+)[\s.:)\-–]*|(\d+)[\.:)\-–]+|(\d+)\s+([A-Za-z].*))\s*(.*)$/i;
 
-  // Single option start: (A), A), A., A:, [A], Option A:
-  // ONLY letters A-F
   const letterOptionStartRegex =
     /^\s*\*?\s*(?:(?:Option|Opt|Choice)\s+)?(?:[\(\[]([A-Fa-f])[\)\]]|([A-Fa-f])[\)\].:\-–])\s*\*?\s*(.*)$/i;
 
-  // Multi inline option regex: e.g. "(A) 10 (B) 20 (C) 30 (D) 40" or "A) 10 B) 20 C) 30 D) 40"
   const multiInlineRegex =
     /(?:^|\s{2,}|\t|\s+)(?:[\(\[]([A-Fa-f])[\)\]]|([A-Fa-f])[\)\].:\-–])\s+/g;
 
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
-    if (!line) continue;
+  let activeSection = '';
+  let activePassage = '';
 
-    // 1. Check for inline answer or explanation
-    const ansMatch = line.match(inlineAnswerRegex);
-    if (ansMatch) {
-      commitOption();
-      currentAnswer = normalizeOptionKey(ansMatch[1]);
+  for (const block of blocks) {
+    if (block.type === 'SECTION_HEADER') {
+      activeSection = block.title || '';
+      activePassage = '';
       continue;
     }
-    const expMatch = line.match(explanationRegex);
-    if (expMatch) {
-      commitOption();
-      currentExplanation = expMatch[1].trim();
+    if (block.type === 'PASSAGE') {
+      activePassage = block.passageText || '';
       continue;
     }
 
-    // 2. Check if line starts an explicit question number (1., 2., Q1, 1 Which...)
-    const qMatch = line.match(questionHeaderRegex);
-    if (qMatch) {
-      let remainder = '';
-      if (qMatch[3] && qMatch[4]) {
-        remainder = `${qMatch[4]} ${qMatch[5] || ''}`.trim();
+    const lines = block.lines;
+    let currentQNum: number | null = null;
+    let currentPromptLines: string[] = [];
+    let currentOptions: { key: string; text: string }[] = [];
+    let currentOptKey: string | null = null;
+    let currentOptText = '';
+    let currentAnswer = '';
+    let currentExplanation = '';
+
+    // Check if initial lines of this block are an untagged passage/directions
+    const firstQIndex = lines.findIndex((l) => questionHeaderRegex.test(l));
+    let blockPassage = activePassage;
+    let startIdx = 0;
+
+    if (firstQIndex > 0) {
+      const leadingLines = lines.slice(0, firstQIndex);
+      const leadingText = leadingLines.join('\n').trim();
+      if (leadingText.length > 80 || /reading comprehension|passage|directions/i.test(activeSection)) {
+        blockPassage = leadingText;
+      }
+      startIdx = firstQIndex;
+    }
+
+    const commitOption = () => {
+      if (currentOptKey) {
+        const clean = cleanOptionText(currentOptText.trim());
+        const sanity = sanityCheckOptionText(clean, maxOptionLength);
+        if (sanity.valid) {
+          // Check for horizontal inline sub-options
+          const subOptionRegex = /(?:^|\s+)(?:[\(\[]([B-Eb-e])[\)\]]|([B-Eb-e])[\)\].:\-–])\s+/g;
+          const subMatches: { index: number; length: number; key: string }[] = [];
+          let sm: RegExpExecArray | null;
+          while ((sm = subOptionRegex.exec(clean)) !== null) {
+            subMatches.push({
+              index: sm.index,
+              length: sm[0].length,
+              key: (sm[1] || sm[2]).toUpperCase(),
+            });
+          }
+
+          if (subMatches.length > 0) {
+            const firstText = cleanOptionText(clean.substring(0, subMatches[0].index).trim());
+            currentOptions.push({ key: currentOptKey, text: firstText });
+            for (let i = 0; i < subMatches.length; i++) {
+              if (currentOptions.length >= expectedOptionsCount) break; // Hard Cap
+              const cur = subMatches[i];
+              const start = cur.index + cur.length;
+              const end = i + 1 < subMatches.length ? subMatches[i + 1].index : clean.length;
+              currentOptions.push({ key: cur.key, text: cleanOptionText(clean.substring(start, end).trim()) });
+            }
+          } else {
+            currentOptions.push({ key: currentOptKey, text: clean });
+          }
+        }
+        currentOptKey = null;
+        currentOptText = '';
+      }
+    };
+
+    const commitQuestion = () => {
+      commitOption();
+      const prompt = currentPromptLines.join('\n').trim();
+      // Only commit if we have at least prompt or options
+      if ((prompt && currentOptions.length >= 2) || (prompt && !prompt.startsWith('IBPS') && currentOptions.length > 0)) {
+        const qNum = currentQNum || (questions.length + 1);
+        let ans = answerKeyMap.get(qNum) || currentAnswer;
+
+        // If fewer than 2 options were extracted, attempt prompt rescue
+        let finalPrompt = prompt;
+        if (currentOptions.length < 2 && finalPrompt) {
+          const rescued = rescueOptionsFromPrompt(finalPrompt);
+          if (rescued && rescued.options.length >= 2) {
+            finalPrompt = rescued.cleanedPrompt;
+            currentOptions = rescued.options.slice(0, expectedOptionsCount).map(o => ({ key: o.key, text: o.text }));
+            if (rescued.detectedAnswer && !ans) ans = rescued.detectedAnswer;
+            if (rescued.explanation && !currentExplanation) currentExplanation = rescued.explanation;
+          }
+        }
+
+        const cappedOptions = currentOptions.slice(0, expectedOptionsCount);
+        if (!ans) {
+          ans = cappedOptions[0]?.key || 'A';
+        }
+
+        const formattedOptions: ExtractedOption[] = cappedOptions.map((opt) => ({
+          id: `opt_${qNum}_${opt.key.toLowerCase()}`,
+          key: opt.key,
+          text: opt.text || `Option ${opt.key}`,
+        }));
+
+        // Run validation pass
+        const tempQ: ExtractedQuestion = {
+          id: `q_parsed_${qNum}_${Date.now()}_${questions.length}`,
+          questionNumber: qNum,
+          sectionTitle: activeSection || undefined,
+          passageContext: blockPassage || undefined,
+          prompt: finalPrompt || `Question ${qNum}`,
+          options: formattedOptions,
+          correctOptionKey: ans,
+          explanation:
+            currentExplanation ||
+            'Refer to the assessment reference materials for detailed solution rationale.',
+          marks: 4,
+          negativeMarks: 1,
+        };
+
+        const validation = validateExtractedQuestion(tempQ, expectedOptionsCount, maxOptionLength);
+        tempQ.needsReview = validation.needsReview;
+        tempQ.reviewReasons = validation.needsReview
+          ? [...validation.errors, ...validation.warnings]
+          : undefined;
+
+        questions.push(tempQ);
+
+        currentQNum = null;
+        currentPromptLines = [];
+        currentOptions = [];
+        currentAnswer = '';
+        currentExplanation = '';
+      }
+    };
+
+    for (let i = startIdx; i < lines.length; i++) {
+      const line = lines[i].trim();
+      if (!line) continue;
+
+      // Stop if answer key header
+      if (/^(?:answer\s*key|answers\s*:|solutions\s*:)/i.test(line)) {
+        commitQuestion();
+        break;
+      }
+
+      // Check for inline answer / explanation
+      const ansMatch = line.match(inlineAnswerRegex);
+      if (ansMatch) {
+        commitOption();
+        currentAnswer = normalizeOptionKey(ansMatch[1]);
+        continue;
+      }
+      const expMatch = line.match(explanationRegex);
+      if (expMatch) {
+        commitOption();
+        currentExplanation = expMatch[1].trim();
+        continue;
+      }
+
+      // Check question number header
+      const qMatch = line.match(questionHeaderRegex);
+      if (qMatch) {
+        commitQuestion();
+        const num = parseInt(qMatch[1] || qMatch[2] || qMatch[3], 10);
+        currentQNum = !isNaN(num) ? num : (questions.length + 1);
+        let remainder = '';
+        if (qMatch[3] && qMatch[4]) {
+          remainder = `${qMatch[4]} ${qMatch[5] || ''}`.trim();
+        } else {
+          remainder = (
+            qMatch[5] ||
+            line.replace(/^\s*(?:(?:Question|Que|Problem|Q)\.?\s*\d+[\s.:)\-–]*|\d+[\.:)\-–]+)\s*/i, '')
+          ).trim();
+        }
+        if (remainder) currentPromptLines.push(remainder);
+        continue;
+      }
+
+      // Multi inline options: "A) 10 B) 20 C) 30 D) 40 E) 50"
+      const inlineMatches: { key: string; index: number; length: number }[] = [];
+      let im: RegExpExecArray | null;
+      multiInlineRegex.lastIndex = 0;
+      while ((im = multiInlineRegex.exec(line)) !== null) {
+        inlineMatches.push({
+          key: normalizeOptionKey(im[1] || im[2]),
+          index: im.index,
+          length: im[0].length,
+        });
+      }
+
+      if (inlineMatches.length >= 2 && inlineMatches[0].key === 'A') {
+        commitOption();
+        const prefix = line.substring(0, inlineMatches[0].index).trim();
+        if (prefix) currentPromptLines.push(prefix);
+
+        for (let j = 0; j < inlineMatches.length; j++) {
+          if (currentOptions.length >= expectedOptionsCount) break; // Hard Cap
+          const cur = inlineMatches[j];
+          const start = cur.index + cur.length;
+          const end = j + 1 < inlineMatches.length ? inlineMatches[j + 1].index : line.length;
+          currentOptions.push({ key: cur.key, text: cleanOptionText(line.substring(start, end).trim()) });
+        }
+
+        // Hard cap: If options satisfied, commit immediately to prevent subsequent lines bleeding into this question
+        if (currentOptions.length >= expectedOptionsCount) {
+          commitQuestion();
+        }
+        continue;
+      }
+
+      // Single option: "A) ...", "B) ..."
+      const optMatch = line.match(letterOptionStartRegex);
+      if (optMatch) {
+        const key = normalizeOptionKey(optMatch[1] || optMatch[2]);
+        // If question already has this option or has reached cap:
+        if (currentOptions.some((o) => o.key === key) || currentOptions.length >= expectedOptionsCount) {
+          commitQuestion();
+        }
+
+        commitOption();
+        currentOptKey = key;
+        currentOptText = optMatch[3] ? optMatch[3].trim() : '';
+        continue;
+      }
+
+      // Regular text line
+      if (currentOptKey) {
+        const potentialOptionText = currentOptText + ' ' + line;
+        const sanity = sanityCheckOptionText(potentialOptionText, maxOptionLength);
+        if (!sanity.valid) {
+          // Sanity violation: close option & question immediately
+          commitQuestion();
+          currentPromptLines.push(line);
+          continue;
+        }
+        currentOptText += ' ' + line;
       } else {
-        remainder = (
-          qMatch[5] ||
-          line.replace(/^\s*(?:(?:Question|Que|Problem|Q)\.?\s*\d+[\s.:)\-–]*|\d+[\.:)\-–]+)\s*/i, '')
-        ).trim();
-      }
-
-      // If we already have options for the current question (or are in an option), this is a NEW question!
-      if (currentOptions.length > 0 || currentOptKey) {
-        commitQuestion();
-        if (remainder) currentPromptLines.push(remainder);
-        continue;
-      }
-
-      // If this is the start of a question block
-      if (currentPromptLines.length === 0) {
-        if (remainder) currentPromptLines.push(remainder);
-        continue;
-      }
-    }
-
-    // 3. Check for multi-options on a single line: "A) 10 B) 20 C) 30 D) 40"
-    const inlineMatches: { key: string; index: number; length: number }[] = [];
-    let im: RegExpExecArray | null;
-    multiInlineRegex.lastIndex = 0;
-    while ((im = multiInlineRegex.exec(line)) !== null) {
-      const k = normalizeOptionKey(im[1] || im[2]);
-      inlineMatches.push({ key: k, index: im.index, length: im[0].length });
-    }
-
-    if (inlineMatches.length >= 2 && inlineMatches[0].key === 'A') {
-      // If current question already has options, commit previous question first!
-      if (currentOptions.length > 0 || currentOptKey) {
-        commitQuestion();
-      }
-      commitOption();
-
-      const prefix = line.substring(0, inlineMatches[0].index).trim();
-      if (prefix) {
-        currentPromptLines.push(prefix);
-      }
-
-      for (let j = 0; j < inlineMatches.length; j++) {
-        const cur = inlineMatches[j];
-        const start = cur.index + cur.length;
-        const end = j + 1 < inlineMatches.length ? inlineMatches[j + 1].index : line.length;
-        const txt = cleanOptionText(line.substring(start, end).trim());
-        currentOptions.push({ key: cur.key, text: txt });
-      }
-      continue;
-    }
-
-    // 4. Check for single option: "A) ...", "(A) ...", "A. ..."
-    const optMatch = line.match(letterOptionStartRegex);
-    if (optMatch) {
-      const key = normalizeOptionKey(optMatch[1] || optMatch[2]);
-
-      // SHARP QUESTION BOUNDARY ENFORCEMENT:
-      // If this question already has this option key (e.g. key is 'A' and we already parsed 'A', 'B', 'C', 'D'),
-      // or if we have at least 3 options and 'A' arrives:
-      // Then this line CANNOT belong to the current question. It is the start of the NEXT question's options!
-      const alreadyHasKey = currentOptions.some((o) => o.key === key) || currentOptKey === key;
-      if (alreadyHasKey || (key === 'A' && currentOptions.length >= 2)) {
-        commitQuestion();
-      }
-
-      commitOption();
-      currentOptKey = key;
-      currentOptText = optMatch[3] ? optMatch[3].trim() : '';
-      currentOptHasAsterisk = line.includes('*');
-      continue;
-    }
-
-    // 5. Regular text line
-    if (currentOptKey) {
-      // Check if this line looks like a question prompt that didn't have a question number
-      // occurring after options A, B, C, D have already been accumulated.
-      // This is the primary fix for PDFs where questions appear without numbered headers.
-      const hasSufficientOptions =
-        currentOptions.length >= 3 || currentOptKey === 'D' || currentOptKey === 'E';
-      const isQuestionStem =
-        line.endsWith('?') ||
-        line.endsWith(':') ||
-        /^(?:what|which|how|why|when|where|who|whom|whose|calculate|find|simplify|solve|evaluate|determine|identify|select|choose|consider|the\b|a\b|an\b|if\b|in\b|for\b|given\b|suppose\b|assume\b|according\b|among\b|between\b)/i.test(
-          line
-        ) ||
-        // Lines that are long enough to be a question and don't look like option continuations
-        (line.length > 40 && !line.match(/^\s*[a-d]\s/i));
-
-      if (hasSufficientOptions && isQuestionStem) {
-        commitQuestion();
         currentPromptLines.push(line);
-        continue;
       }
-
-      currentOptText += ' ' + line;
-    } else {
-      currentPromptLines.push(line);
     }
+
+    commitQuestion();
   }
 
-  commitQuestion();
+  let identifiedAnswersCount = 0;
+  let flaggedQuestionsCount = 0;
 
-  if (intermediateList.length === 0) {
+  questions.forEach((q) => {
+    if (q.correctOptionKey && q.options.some((o) => o.key === q.correctOptionKey)) {
+      identifiedAnswersCount++;
+    }
+    if (q.needsReview) {
+      flaggedQuestionsCount++;
+    }
+  });
+
+  if (questions.length === 0) {
     warnings.push(
       'Could not detect standard numbered questions (1., 2., Q1.). Review raw text or use AI extraction.'
     );
   }
-
-  let identifiedAnswersCount = 0;
-
-  intermediateList.forEach((item, idx) => {
-    const qNum = item.qNum || idx + 1;
-    if (item.answer) {
-      identifiedAnswersCount++;
-    }
-
-    const formattedOptions: ExtractedOption[] = item.options.map((opt) => ({
-      id: `opt_${qNum}_${opt.key.toLowerCase()}`,
-      key: opt.key,
-      text: opt.text || `Option ${opt.key}`,
-    }));
-
-    if (formattedOptions.length === 0) {
-      warnings.push(`Question ${qNum} has no standard options detected. Review manually.`);
-      ['A', 'B', 'C', 'D'].forEach((k) => {
-        formattedOptions.push({
-          id: `opt_${qNum}_${k.toLowerCase()}`,
-          key: k,
-          text: `Option ${k}`,
-        });
-      });
-    }
-
-    questions.push({
-      id: `q_parsed_${qNum}_${Date.now()}_${idx}`,
-      questionNumber: qNum,
-      prompt: item.prompt || `Question ${qNum}`,
-      options: formattedOptions,
-      correctOptionKey: item.answer || 'A',
-      explanation:
-        item.explanation ||
-        'Refer to the assessment reference materials for detailed solution rationale.',
-      marks: 4,
-      negativeMarks: 1,
-    });
-  });
 
   return {
     questions,
     rawText: text,
     totalQuestions: questions.length,
     identifiedAnswersCount,
+    flaggedQuestionsCount,
     warnings,
   };
 }

@@ -433,53 +433,53 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
         </div>
       )}
 
-      {/* MOBILE BOTTOM TAB BAR FOR STUDENT */}
-      <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 flex shadow-2xl">
+      {/* MOBILE BOTTOM TAB BAR FOR STUDENT (Optimized thumb bar with safe area) */}
+      <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-slate-900/98 backdrop-blur-lg border-t border-slate-800/90 pb-safe pt-1.5 px-2 flex items-center justify-around shadow-2xl">
         <button
           type="button"
           onClick={() => setActiveTab('dashboard')}
-          className={`flex-1 flex flex-col items-center justify-center gap-1 py-2 text-[10px] font-bold uppercase tracking-wider transition-colors cursor-pointer ${
-            activeTab === 'dashboard' ? 'text-indigo-400' : 'text-slate-400 hover:text-slate-200'
+          className={`flex-1 flex flex-col items-center justify-center gap-1 py-1 text-[10px] font-bold tracking-tight transition-all cursor-pointer active:scale-95 ${
+            activeTab === 'dashboard' ? 'text-indigo-400 font-black' : 'text-slate-400 hover:text-slate-200'
           }`}
         >
-          <SparklesIcon size={16} />
+          <SparklesIcon size={18} />
           <span>Dashboard</span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab('browse')}
-          className={`flex-1 flex flex-col items-center justify-center gap-1 py-2 text-[10px] font-bold uppercase tracking-wider transition-colors cursor-pointer relative ${
-            activeTab === 'browse' ? 'text-indigo-400' : 'text-slate-400 hover:text-slate-200'
+          className={`flex-1 flex flex-col items-center justify-center gap-1 py-1 text-[10px] font-bold tracking-tight transition-all cursor-pointer active:scale-95 relative ${
+            activeTab === 'browse' ? 'text-indigo-400 font-black' : 'text-slate-400 hover:text-slate-200'
           }`}
         >
           <div className="relative">
-            <CalendarIcon size={16} />
+            <CalendarIcon size={18} />
             {availableTests.length > 0 && (
               <span className="absolute -top-1.5 -right-3 h-4 min-w-[16px] px-1 bg-indigo-600 text-white rounded-full text-[9px] font-black flex items-center justify-center">
                 {availableTests.length}
               </span>
             )}
           </div>
-          <span>1. Browse</span>
+          <span>Browse</span>
         </button>
 
         <button
           type="button"
           onClick={() => setActiveTab('tests_taken')}
-          className={`flex-1 flex flex-col items-center justify-center gap-1 py-2 text-[10px] font-bold uppercase tracking-wider transition-colors cursor-pointer relative ${
-            activeTab === 'tests_taken' ? 'text-indigo-400' : 'text-slate-400 hover:text-slate-200'
+          className={`flex-1 flex flex-col items-center justify-center gap-1 py-1 text-[10px] font-bold tracking-tight transition-all cursor-pointer active:scale-95 relative ${
+            activeTab === 'tests_taken' ? 'text-indigo-400 font-black' : 'text-slate-400 hover:text-slate-200'
           }`}
         >
           <div className="relative">
-            <AwardIcon size={16} />
+            <AwardIcon size={18} />
             {results.length > 0 && (
               <span className="absolute -top-1.5 -right-3 h-4 min-w-[16px] px-1 bg-slate-700 text-slate-200 rounded-full text-[9px] font-black flex items-center justify-center">
                 {results.length}
               </span>
             )}
           </div>
-          <span>2. Taken</span>
+          <span>Tests Taken</span>
         </button>
       </div>
 
@@ -525,10 +525,10 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
               </div>
 
               {/* Action Buttons */}
-              <div className={`flex items-center gap-3 self-start md:self-auto transition-all duration-700 delay-150 ${isLoaded ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-5'} flex-wrap`}>
+              <div className={`flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 sm:gap-3 w-full md:w-auto transition-all duration-700 delay-150 ${isLoaded ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-5'}`}>
                 <button
                   onClick={() => setActiveTab('browse')}
-                  className="flex items-center gap-2 text-xs sm:text-sm font-bold bg-white text-slate-900 hover:bg-indigo-50 px-4 sm:px-5 py-2.5 rounded-2xl shadow-lg transition-all cursor-pointer"
+                  className="flex items-center justify-center gap-2 text-xs sm:text-sm font-bold bg-white text-slate-900 hover:bg-indigo-50 px-4 sm:px-5 py-3 sm:py-2.5 rounded-2xl shadow-lg transition-all cursor-pointer active:scale-95"
                 >
                   <CalendarIcon size={16} className="text-indigo-600" />
                   <span>Browse Assessments</span>
@@ -537,7 +537,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
                 <button
                   onClick={() => setActiveTab('tests_taken')}
-                  className="flex items-center gap-2 text-xs sm:text-sm font-bold bg-indigo-600/30 hover:bg-indigo-600/50 text-white border border-indigo-400/40 px-4 sm:px-5 py-2.5 rounded-2xl transition-all cursor-pointer"
+                  className="flex items-center justify-center gap-2 text-xs sm:text-sm font-bold bg-indigo-600/30 hover:bg-indigo-600/50 text-white border border-indigo-400/40 px-4 sm:px-5 py-3 sm:py-2.5 rounded-2xl transition-all cursor-pointer active:scale-95"
                 >
                   <AwardIcon size={16} />
                   <span>Tests Taken ({results.length})</span>
@@ -546,7 +546,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
             </div>
           </section>
 
-          <main className="max-w-7xl mx-auto px-4 sm:px-8 mt-8 space-y-10">
+          <main className="max-w-7xl mx-auto px-4 sm:px-8 mt-8 space-y-10 pb-28 md:pb-12">
             {/* PERFORMANCE OVERVIEW */}
             <section aria-labelledby="perf-heading"
               className={`transition-all duration-700 delay-100 ${isLoaded ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-6'}`}>
@@ -844,7 +844,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
       {/* 4. VIEW 2: BROWSE ASSESSMENTS (UPCOMING ASSESSMENTS ONLY)                  */}
       {/* ========================================================================= */}
       {activeTab === 'browse' && (
-        <div className="max-w-7xl mx-auto px-4 sm:px-8 pt-8 sm:pt-10 space-y-8 animate-fade-in">
+        <div className="max-w-7xl mx-auto px-4 sm:px-8 pt-8 sm:pt-10 pb-28 md:pb-12 space-y-8 animate-fade-in">
           {/* Header Banner */}
           <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-indigo-900 via-indigo-950 to-slate-900 p-6 sm:p-8 text-white shadow-xl shadow-indigo-950/20">
             <div className="absolute -top-12 -right-12 w-64 h-64 bg-indigo-500/20 rounded-full blur-3xl pointer-events-none" />
@@ -878,7 +878,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
 
           {/* Search & Filter Bar */}
           <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white p-3 sm:p-4 rounded-2xl border border-slate-200 shadow-xs">
-            <div className="flex items-center gap-2 w-full sm:w-auto overflow-x-auto pb-1 sm:pb-0">
+            <div className="flex items-center gap-2 w-full sm:w-auto overflow-x-auto no-scrollbar pb-1 sm:pb-0">
               <span className="text-xs font-bold text-slate-400 shrink-0">Category:</span>
               {browseCategories.map((cat) => (
                 <button
@@ -1090,7 +1090,7 @@ export const StudentDashboard: React.FC<StudentDashboardProps> = ({
       {/* 5. VIEW 3: TESTS TAKEN (COMPLETE EVALUATION HISTORY)                      */}
       {/* ========================================================================= */}
       {activeTab === 'tests_taken' && (
-        <div className="max-w-7xl mx-auto px-4 sm:px-8 pt-8 sm:pt-10 space-y-8 animate-fade-in">
+        <div className="max-w-7xl mx-auto px-4 sm:px-8 pt-8 sm:pt-10 pb-28 md:pb-12 space-y-8 animate-fade-in">
           {/* Header Banner */}
           <div className="relative overflow-hidden rounded-3xl bg-gradient-to-br from-slate-900 via-indigo-950 to-slate-900 p-6 sm:p-8 text-white shadow-xl shadow-indigo-950/20">
             <div className="absolute -top-12 -right-12 w-64 h-64 bg-cyan-500/15 rounded-full blur-3xl pointer-events-none" />
@@ -1219,19 +1219,21 @@ const StatTile: React.FC<StatTileProps> = ({
   gradient,
   icon,
 }) => (
-  <div className="group bg-white rounded-2xl border border-slate-200/80 shadow-sm hover:shadow-lg hover:-translate-y-0.5 transition-all duration-200 relative overflow-hidden p-4 cursor-default">
+  <div className="group bg-white rounded-xl sm:rounded-2xl border border-slate-200/80 shadow-xs hover:shadow-lg transition-all duration-200 relative overflow-hidden p-3 sm:p-4 cursor-default flex flex-col justify-between">
     <div className={`absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r ${gradient}`} />
-    <div className="flex items-center justify-between mb-2 mt-0.5">
-      <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 leading-tight">
-        {label}
-      </span>
-      <div className="group-hover:scale-110 transition-transform duration-200">{icon}</div>
+    <div>
+      <div className="flex items-center justify-between mb-1.5 mt-0.5">
+        <span className="text-[9px] sm:text-[10px] uppercase font-bold tracking-wider text-slate-400 leading-tight truncate">
+          {label}
+        </span>
+        <div className="group-hover:scale-110 transition-transform duration-200 shrink-0">{icon}</div>
+      </div>
+      <div className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight tabular-nums leading-none">
+        {value}
+        {suffix && <span className="text-[10px] sm:text-xs font-normal text-slate-400 ml-0.5">{suffix}</span>}
+      </div>
     </div>
-    <div className="text-2xl font-black text-slate-900 tracking-tight tabular-nums leading-none">
-      {value}
-      {suffix && <span className="text-xs font-normal text-slate-400 ml-0.5">{suffix}</span>}
-    </div>
-    <div className={`text-[11px] font-semibold mt-1.5 ${subColor}`}>{sub}</div>
+    <div className={`text-[10px] sm:text-[11px] font-semibold mt-1.5 truncate ${subColor}`}>{sub}</div>
   </div>
 );
 
@@ -1269,18 +1271,18 @@ const StructuredTestCard: React.FC<StructuredTestCardProps> = ({
 
   return (
     <div
-      className={`group bg-white rounded-2xl sm:rounded-3xl border border-slate-200/80 shadow-sm hover:shadow-xl hover:-translate-y-0.5 transition-all duration-200 overflow-hidden ${
+      className={`group bg-white rounded-2xl sm:rounded-3xl border border-slate-200/80 shadow-xs hover:shadow-xl hover:-translate-y-0.5 transition-all duration-200 overflow-hidden ${
         isLoaded ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
       }`}
       style={{ transitionDelay: `${index * 70}ms` }}
     >
       <div className={`h-1 bg-gradient-to-r ${topBar}`} />
-      <div className="p-4 sm:p-5 flex flex-col md:flex-row md:items-center gap-4">
+      <div className="p-3.5 sm:p-5 flex flex-col md:flex-row md:items-center gap-3.5 sm:gap-4">
         {/* LEFT */}
-        <div className="flex items-start gap-4 flex-1 min-w-0">
+        <div className="flex items-start gap-3 sm:gap-4 flex-1 min-w-0">
           {/* Mini ring */}
-          <div className="shrink-0 relative w-14 h-14">
-            <svg width="56" height="56" viewBox="0 0 56 56" className="-rotate-90">
+          <div className="shrink-0 relative w-12 h-12 sm:w-14 sm:h-14">
+            <svg width="100%" height="100%" viewBox="0 0 56 56" className="-rotate-90">
               <circle cx="28" cy="28" r="22" stroke="#f1f5f9" strokeWidth="6" fill="none" />
               <circle
                 cx="28"
@@ -1304,7 +1306,7 @@ const StructuredTestCard: React.FC<StructuredTestCardProps> = ({
               </defs>
             </svg>
             <div className="absolute inset-0 flex items-center justify-center">
-              <span className="text-[11px] font-black text-slate-800 tabular-nums">
+              <span className="text-[10px] sm:text-[11px] font-black text-slate-800 tabular-nums">
                 {result.percentage.toFixed(0)}%
               </span>
             </div>
@@ -1312,16 +1314,16 @@ const StructuredTestCard: React.FC<StructuredTestCardProps> = ({
 
           {/* Info */}
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap mb-1.5">
+            <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap mb-1">
               {result.topic && (
-                <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200/70 px-2 py-0.5 rounded-md whitespace-nowrap">
+                <span className="text-[9px] sm:text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-200/70 px-1.5 sm:px-2 py-0.5 rounded-md whitespace-nowrap">
                   {result.topic}
                 </span>
               )}
-              <span className={`text-[10px] font-bold border px-2 py-0.5 rounded-md whitespace-nowrap ${scorePill}`}>
+              <span className={`text-[9px] sm:text-[10px] font-bold border px-1.5 sm:px-2 py-0.5 rounded-md whitespace-nowrap ${scorePill}`}>
                 {scoreLabel}
               </span>
-              <span className="text-[10px] text-slate-400 font-mono whitespace-nowrap">
+              <span className="text-[9px] sm:text-[10px] text-slate-400 font-mono whitespace-nowrap">
                 {new Date(result.submittedAt).toLocaleDateString('en-IN', {
                   day: 'numeric',
                   month: 'short',
@@ -1329,10 +1331,10 @@ const StructuredTestCard: React.FC<StructuredTestCardProps> = ({
                 })}
               </span>
             </div>
-            <h3 className="text-sm sm:text-base font-extrabold text-slate-900 leading-snug line-clamp-2 group-hover:text-indigo-800 transition-colors">
+            <h3 className="text-xs sm:text-base font-extrabold text-slate-900 leading-snug line-clamp-2 group-hover:text-indigo-800 transition-colors">
               {result.testTitle}
             </h3>
-            <div className="flex items-center gap-3 sm:gap-5 flex-wrap mt-2 text-xs text-slate-500">
+            <div className="flex items-center gap-2.5 sm:gap-5 flex-wrap mt-2 text-[11px] sm:text-xs text-slate-500">
               <span className="flex items-center gap-1 whitespace-nowrap">
                 <AwardIcon size={12} className="text-emerald-500 shrink-0" />
                 <span className="font-bold text-slate-800">{result.totalScore}</span>
@@ -1356,14 +1358,14 @@ const StructuredTestCard: React.FC<StructuredTestCardProps> = ({
         <div className="flex flex-row md:flex-col gap-2 shrink-0 pt-3 md:pt-0 border-t md:border-t-0 md:border-l border-slate-100 md:pl-5 w-full md:w-40">
           <button
             onClick={onRetake}
-            className="flex-1 md:flex-none flex items-center justify-center gap-2 text-xs font-bold bg-slate-900 text-white hover:bg-indigo-700 px-4 py-2.5 rounded-xl shadow-sm hover:shadow-md transition-all cursor-pointer whitespace-nowrap"
+            className="flex-1 md:flex-none flex items-center justify-center gap-1.5 sm:gap-2 text-xs font-bold bg-slate-900 text-white hover:bg-indigo-700 px-3 sm:px-4 py-2.5 rounded-xl shadow-xs hover:shadow-md transition-all cursor-pointer whitespace-nowrap active:scale-95"
           >
             <RotateCcwIcon size={13} />
             <span>Retake</span>
           </button>
           <button
             onClick={onShowResponse}
-            className="flex-1 md:flex-none flex items-center justify-center gap-2 text-xs font-bold bg-white text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 border border-slate-200 hover:border-indigo-300 px-4 py-2.5 rounded-xl transition-all cursor-pointer whitespace-nowrap"
+            className="flex-1 md:flex-none flex items-center justify-center gap-1.5 sm:gap-2 text-xs font-bold bg-white text-slate-700 hover:bg-indigo-50 hover:text-indigo-700 border border-slate-200 hover:border-indigo-300 px-3 sm:px-4 py-2.5 rounded-xl transition-all cursor-pointer whitespace-nowrap active:scale-95"
           >
             <EyeIcon size={13} />
             <span>View Response</span>

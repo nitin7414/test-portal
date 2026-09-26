@@ -44,6 +44,7 @@ html.lenis body {
 
 html {
   -webkit-tap-highlight-color: transparent;
+  touch-action: manipulation;
 }
 
 body {
@@ -59,6 +60,31 @@ body {
 code, kbd, samp, pre {
   font-family: var(--font-mono), 'JetBrains Mono', monospace;
 }
+
+/* Safe Area Inset Helpers for iOS and Modern Mobile Notches / Home Indicators */
+.pb-safe {
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), 0.75rem);
+}
+
+.pt-safe {
+  padding-top: max(env(safe-area-inset-top, 0px), 0.5rem);
+}
+
+.mb-safe {
+  margin-bottom: max(env(safe-area-inset-bottom, 0px), 0.75rem);
+}
+
+/* Hide scrollbar for Chrome, Safari and Opera while maintaining scrollability */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Hide scrollbar for IE, Edge and Firefox */
+.no-scrollbar {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
 
 
 /* Butter-smooth clean scrollbar */

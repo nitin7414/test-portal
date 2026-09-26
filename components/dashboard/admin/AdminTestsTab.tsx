@@ -68,15 +68,15 @@ export const AdminTestsTab: React.FC<AdminTestsTabProps> = ({
   };
 
   return (
-    <div className={`p-6 lg:p-8 space-y-6 transition-all duration-500 ${isLoaded ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
+    <div className={`p-3.5 sm:p-6 lg:p-8 space-y-4 sm:space-y-6 transition-all duration-500 ${isLoaded ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-black text-white tracking-tight">Test Management</h2>
-          <p className="text-sm text-slate-400 mt-0.5">Configure status, duration, and assess candidates</p>
+          <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">Test Management</h2>
+          <p className="text-xs sm:text-sm text-slate-400 mt-0.5">Configure status, duration, and assess candidates</p>
         </div>
         <button
           onClick={onResetDefaults}
-          className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-white font-bold text-sm px-4 py-2.5 rounded-xl border border-slate-700 transition-all cursor-pointer"
+          className="flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs sm:text-sm px-4 py-2.5 rounded-xl border border-slate-700 transition-all cursor-pointer w-full sm:w-auto active:scale-95"
         >
           <RefreshIcon size={14} />
           Reset Defaults
@@ -85,7 +85,7 @@ export const AdminTestsTab: React.FC<AdminTestsTabProps> = ({
 
       <div className="space-y-4">
         {tests.map((test) => (
-          <div key={test.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-6 space-y-4 hover:border-slate-700 transition-colors">
+          <div key={test.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 space-y-3.5 sm:space-y-4 hover:border-slate-700 transition-colors">
             <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap mb-1.5">
@@ -97,21 +97,21 @@ export const AdminTestsTab: React.FC<AdminTestsTabProps> = ({
                     {test.category}
                   </span>
                 </div>
-                <h3 className="text-base font-extrabold text-white leading-snug">{test.title}</h3>
+                <h3 className="text-sm sm:text-base font-extrabold text-white leading-snug">{test.title}</h3>
                 <p className="text-xs text-slate-400 mt-1 line-clamp-2">{test.description}</p>
               </div>
 
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="grid grid-cols-2 sm:flex sm:items-center gap-2 w-full sm:w-auto pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-800/80 shrink-0">
                 <button
                   onClick={() => setSchedulingTest(test)}
-                  className="flex items-center gap-1.5 text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white px-3.5 py-2 rounded-xl shadow-md shadow-indigo-600/30 transition-all cursor-pointer"
+                  className="col-span-2 sm:col-auto flex items-center justify-center gap-1.5 text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white px-3.5 py-2.5 sm:py-2 rounded-xl shadow-md shadow-indigo-600/30 transition-all cursor-pointer active:scale-95"
                 >
                   <CalendarIcon size={13} />
-                  Schedule & Assign
+                  <span>Schedule & Assign</span>
                 </button>
                 <button
                   onClick={() => onCycleStatus(test.id)}
-                  className="text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white px-3 py-2 rounded-xl border border-slate-700 transition-all cursor-pointer"
+                  className="col-span-1 flex items-center justify-center text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white px-3 py-2.5 sm:py-2 rounded-xl border border-slate-700 transition-all cursor-pointer active:scale-95 truncate"
                   title="Cycle test status"
                 >
                   Cycle Status
@@ -119,17 +119,18 @@ export const AdminTestsTab: React.FC<AdminTestsTabProps> = ({
                 {onDeleteTest && (
                   <button
                     onClick={() => onDeleteTest(test.id, test.title)}
-                    className="text-xs font-bold bg-slate-800 border border-slate-700 text-slate-400 hover:text-rose-400 hover:border-rose-700 px-2.5 py-2 rounded-xl transition-all cursor-pointer"
+                    className="col-span-1 flex items-center justify-center gap-1 text-xs font-bold bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-400 hover:text-rose-400 hover:border-rose-700 px-2.5 py-2.5 sm:py-2 rounded-xl transition-all cursor-pointer active:scale-95"
                     title="Delete test"
                   >
                     <TrashIcon size={13} />
+                    <span className="sm:hidden">Delete</span>
                   </button>
                 )}
               </div>
             </div>
 
             {/* Schedule & Target Student Access Overview Bar */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3.5 rounded-xl bg-slate-950/60 border border-slate-800/80 text-xs">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 sm:gap-3 p-3 sm:p-3.5 rounded-xl bg-slate-950/60 border border-slate-800/80 text-xs">
               <div className="space-y-1">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
                   <CalendarIcon size={12} className="text-indigo-400" />
@@ -167,34 +168,36 @@ export const AdminTestsTab: React.FC<AdminTestsTabProps> = ({
               </div>
             </div>
 
-            <div className="flex items-center justify-between gap-4 flex-wrap text-xs text-slate-400 pt-1 border-t border-slate-800/60">
-              <div className="flex items-center gap-3.5 flex-wrap">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-400 pt-2 border-t border-slate-800/60">
+              <div className="flex items-center gap-3 sm:gap-4 flex-wrap">
                 <span className="flex items-center gap-1.5"><ClockIcon size={12} className="text-slate-500" />{test.durationMinutes}m</span>
                 <span className="flex items-center gap-1.5"><BookOpenIcon size={12} className="text-slate-500" />{test.totalQuestions} Questions</span>
                 <span className="flex items-center gap-1.5"><AwardIcon size={12} className="text-slate-500" />{test.totalMarks} Marks</span>
                 <span className="flex items-center gap-1.5"><CheckCircleIcon size={12} className="text-slate-500" />Pass: {test.passMarks}</span>
               </div>
 
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-500">Quick Duration:</span>
-                <input
-                  type="number"
-                  min={1}
-                  max={300}
-                  placeholder={String(test.durationMinutes)}
-                  value={editingDuration[test.id] ?? ''}
-                  onChange={(e) => setEditingDuration((prev) => ({ ...prev, [test.id]: e.target.value }))}
-                  className="w-16 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition-all text-center"
-                />
-                <span className="text-xs text-slate-500">min</span>
-                {editingDuration[test.id] && (
-                  <button
-                    onClick={() => handleUpdateDuration(test.id)}
-                    className="text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white px-2.5 py-1 rounded-lg transition-all cursor-pointer"
-                  >
-                    Save
-                  </button>
-                )}
+              <div className="flex items-center justify-between sm:justify-end gap-2 bg-slate-950/40 sm:bg-transparent p-2 sm:p-0 rounded-xl sm:rounded-none">
+                <span className="text-xs text-slate-400">Quick Duration:</span>
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="number"
+                    min={1}
+                    max={300}
+                    placeholder={String(test.durationMinutes)}
+                    value={editingDuration[test.id] ?? ''}
+                    onChange={(e) => setEditingDuration((prev) => ({ ...prev, [test.id]: e.target.value }))}
+                    className="w-14 sm:w-16 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 transition-all text-center"
+                  />
+                  <span className="text-xs text-slate-400">min</span>
+                  {editingDuration[test.id] && (
+                    <button
+                      onClick={() => handleUpdateDuration(test.id)}
+                      className="text-xs font-bold bg-indigo-600 hover:bg-indigo-500 text-white px-2.5 py-1 rounded-lg transition-all cursor-pointer ml-1"
+                    >
+                      Save
+                    </button>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -281,9 +284,9 @@ const ScheduleTestModal: React.FC<ScheduleTestModalProps> = ({ test, students, o
   });
 
   return (
-    <div className="fixed inset-0 z-[9998] flex items-center justify-center p-4" data-lenis-prevent="true">
-      <div className="absolute inset-0 bg-black/75 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-slate-900 border border-slate-750 rounded-3xl p-6 sm:p-7 w-full max-w-2xl shadow-2xl space-y-6 max-h-[92vh] overflow-y-auto">
+    <div className="fixed inset-0 z-[9998] flex items-center justify-center p-3 sm:p-4 pb-safe" data-lenis-prevent="true">
+      <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-slate-900 border border-slate-700/80 rounded-2xl sm:rounded-3xl p-4 sm:p-7 w-full max-w-2xl shadow-2xl space-y-5 sm:space-y-6 max-h-[92vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-start justify-between gap-4 border-b border-slate-800 pb-4">
           <div>

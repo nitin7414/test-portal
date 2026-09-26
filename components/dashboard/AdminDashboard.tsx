@@ -381,23 +381,71 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
           </div>
         )}
 
-        {/* MOBILE BOTTOM TAB BAR */}
-        <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-slate-900/95 backdrop-blur-md border-t border-slate-800 flex shadow-lg">
-          {TABS.map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex-1 flex flex-col items-center justify-center gap-1 py-2 text-[10px] font-bold uppercase tracking-wider transition-colors cursor-pointer ${activeTab === tab.id ? 'text-indigo-400' : 'text-slate-500 hover:text-slate-300'
-                }`}
-            >
-              {tab.icon}
-              <span className="truncate max-w-full px-0.5">{tab.mobileLabel || tab.label}</span>
-            </button>
-          ))}
+        {/* MOBILE BOTTOM TAB BAR (Optimized 5-target thumb layout with safe area) */}
+        <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-slate-900/98 backdrop-blur-lg border-t border-slate-800/90 pb-safe pt-1.5 px-1 flex items-center justify-around shadow-2xl">
+          <button
+            type="button"
+            onClick={() => setActiveTab('overview')}
+            className={`flex-1 flex flex-col items-center justify-center gap-1 py-1.5 text-[10px] font-bold tracking-tight transition-all cursor-pointer active:scale-95 ${
+              activeTab === 'overview' ? 'text-indigo-400 font-black' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <BarChartIcon size={18} />
+            <span>Overview</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('students')}
+            className={`flex-1 flex flex-col items-center justify-center gap-1 py-1.5 text-[10px] font-bold tracking-tight transition-all cursor-pointer active:scale-95 ${
+              activeTab === 'students' ? 'text-indigo-400 font-black' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <UsersIcon size={18} />
+            <span>Students</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('tests')}
+            className={`flex-1 flex flex-col items-center justify-center gap-1 py-1.5 text-[10px] font-bold tracking-tight transition-all cursor-pointer active:scale-95 ${
+              activeTab === 'tests' ? 'text-indigo-400 font-black' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <BookOpenIcon size={18} />
+            <span>Tests</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('generate')}
+            className={`flex-1 flex flex-col items-center justify-center gap-1 py-1.5 text-[10px] font-bold tracking-tight transition-all cursor-pointer active:scale-95 ${
+              activeTab === 'generate' ? 'text-indigo-400 font-black' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <UploadIcon size={18} />
+            <span>Create</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setMobileMenuOpen(true)}
+            className={`flex-1 flex flex-col items-center justify-center gap-1 py-1.5 text-[10px] font-bold tracking-tight transition-all cursor-pointer active:scale-95 ${
+              activeTab === 'admins' || activeTab === 'settings' ? 'text-indigo-400 font-black' : 'text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <div className="relative">
+              <MenuIcon size={18} />
+              {(activeTab === 'admins' || activeTab === 'settings') && (
+                <span className="absolute -top-1 -right-1 h-2 w-2 rounded-full bg-indigo-500" />
+              )}
+            </div>
+            <span>Menu</span>
+          </button>
         </div>
 
         {/* MAIN CONTENT CONTAINER */}
-        <main className="flex-1 lg:ml-64 pt-16 lg:pt-0 pb-24 lg:pb-0 min-h-screen">
+        <main className="flex-1 lg:ml-64 pt-16 lg:pt-0 pb-28 lg:pb-0 min-h-screen">
           {/* 1. OVERVIEW TAB */}
           {activeTab === 'overview' && (
             <AdminOverviewTab
@@ -491,14 +539,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({ session, onLogou
         </main>
       </div>
 
-      {/* TOAST */}
+      {/* TOAST (Positioned safely above mobile bottom bar) */}
       {toast && (
         <div
-          className={`fixed bottom-6 right-6 z-[9999] flex items-center gap-3 px-5 py-3 rounded-2xl shadow-2xl font-semibold text-sm transition-all duration-300 ${toast.type === 'success' ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'
-            }`}
+          className={`fixed bottom-20 lg:bottom-6 right-4 sm:right-6 left-4 sm:left-auto z-[9999] flex items-center justify-between sm:justify-start gap-3 px-4 py-3 rounded-2xl shadow-2xl font-semibold text-xs sm:text-sm transition-all duration-300 ${
+            toast.type === 'success' ? 'bg-emerald-700 text-white' : 'bg-rose-700 text-white'
+          }`}
         >
-          {toast.type === 'success' ? <CheckCircleIcon size={16} /> : <AlertTriangleIcon size={16} />}
-          {toast.msg}
+          <div className="flex items-center gap-2.5">
+            {toast.type === 'success' ? <CheckCircleIcon size={16} /> : <AlertTriangleIcon size={16} />}
+            <span>{toast.msg}</span>
+          </div>
         </div>
       )}
     </div>

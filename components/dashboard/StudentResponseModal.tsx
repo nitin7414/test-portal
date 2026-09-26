@@ -48,28 +48,28 @@ export const StudentResponseModal: React.FC<StudentResponseModalProps> = ({
       data-lenis-prevent="true"
       className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/60 backdrop-blur-sm animate-fade-in"
     >
-      <div data-lenis-prevent="true" className="w-full max-w-4xl max-h-[90vh] bg-white rounded-3xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden animate-scale-up">
+      <div data-lenis-prevent="true" className="w-full max-w-4xl max-h-[92vh] bg-white rounded-2xl sm:rounded-3xl shadow-2xl border border-slate-200 flex flex-col overflow-hidden animate-scale-up">
         {/* Top Header */}
-        <div className="px-5 sm:px-7 py-4 bg-slate-900 text-white flex items-center justify-between border-b border-slate-800">
-          <div>
-            <div className="flex items-center gap-2 mb-1">
+        <div className="px-4 sm:px-7 py-3 sm:py-4 bg-slate-900 text-white flex items-center justify-between border-b border-slate-800">
+          <div className="min-w-0 pr-2">
+            <div className="flex items-center gap-2 mb-1 flex-wrap">
               <Badge variant="primary" size="sm">
                 Candidate Response Review
               </Badge>
               {result.topic && (
-                <span className="text-[11px] text-slate-300 font-mono">
+                <span className="text-[11px] text-slate-300 font-mono truncate max-w-[180px] sm:max-w-none">
                   {result.topic}
                 </span>
               )}
             </div>
-            <h2 id="response-modal-title" className="text-lg sm:text-xl font-bold tracking-tight text-white">
+            <h2 id="response-modal-title" className="text-base sm:text-xl font-bold tracking-tight text-white truncate">
               {result.testTitle}
             </h2>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="text-slate-400 hover:text-white text-2xl font-light p-1 leading-none rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+            className="text-slate-400 hover:text-white text-2xl font-light p-1 leading-none rounded-lg hover:bg-slate-800 transition-colors cursor-pointer shrink-0"
             aria-label="Close dialog"
           >
             &times;
@@ -77,13 +77,13 @@ export const StudentResponseModal: React.FC<StudentResponseModalProps> = ({
         </div>
 
         {/* Score & Summary Ribbon */}
-        <div className="bg-slate-50 px-5 sm:px-7 py-3.5 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-700">
-          <div className="flex items-center gap-4 sm:gap-6 flex-wrap">
+        <div className="bg-slate-50 px-4 sm:px-7 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2.5 text-xs text-slate-700">
+          <div className="flex items-center gap-3 sm:gap-6 flex-wrap">
             <div className="flex items-center gap-1.5">
-              <AwardIcon size={16} className="text-amber-500" />
+              <AwardIcon size={15} className="text-amber-500 shrink-0" />
               <span>
                 Score:{' '}
-                <strong className="text-black font-bold text-sm">
+                <strong className="text-black font-bold text-xs sm:text-sm">
                   {result.totalScore} / {result.maxScore}
                 </strong>
               </span>
@@ -93,29 +93,30 @@ export const StudentResponseModal: React.FC<StudentResponseModalProps> = ({
             </div>
 
             <div className="flex items-center gap-1.5">
-              <ClockIcon size={15} className="text-slate-500" />
+              <ClockIcon size={14} className="text-slate-500 shrink-0" />
               <span>
                 Duration:{' '}
                 <strong className="text-slate-900">
                   {formatDuration(result.timeTakenSeconds)}
                 </strong>{' '}
-                <span className="text-slate-400">/ {formatDuration(result.totalTimeSeconds)}</span>
+                <span className="text-slate-400 hidden xs:inline">/ {formatDuration(result.totalTimeSeconds)}</span>
               </span>
             </div>
 
             <div className="flex items-center gap-1.5">
-              <SparklesIcon size={15} className="text-indigo-500" />
+              <SparklesIcon size={14} className="text-indigo-500 shrink-0" />
               <span>
                 Accuracy: <strong className="text-slate-900">{result.accuracy}%</strong>
               </span>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 w-full sm:w-auto justify-end">
             {onRetakeTest && (
               <Button
                 variant="secondary"
                 size="sm"
+                fullWidth={false}
                 onClick={() => {
                   onClose();
                   onRetakeTest(result.testId);
@@ -128,11 +129,11 @@ export const StudentResponseModal: React.FC<StudentResponseModalProps> = ({
         </div>
 
         {/* Filter Navigation Tabs */}
-        <div className="px-5 sm:px-7 py-2.5 bg-white border-b border-slate-100 flex items-center gap-2">
+        <div className="px-4 sm:px-7 py-2.5 bg-white border-b border-slate-100 flex items-center gap-2 overflow-x-auto no-scrollbar whitespace-nowrap">
           <button
             type="button"
             onClick={() => setActiveFilter('all')}
-            className={`text-xs font-semibold px-3 py-1.5 rounded-xl transition-colors cursor-pointer ${
+            className={`text-xs font-semibold px-3 py-1.5 rounded-xl transition-colors cursor-pointer shrink-0 ${
               activeFilter === 'all'
                 ? 'bg-black text-white'
                 : 'text-slate-600 hover:bg-slate-100'
@@ -143,7 +144,7 @@ export const StudentResponseModal: React.FC<StudentResponseModalProps> = ({
           <button
             type="button"
             onClick={() => setActiveFilter('correct')}
-            className={`text-xs font-semibold px-3 py-1.5 rounded-xl transition-colors cursor-pointer flex items-center gap-1 ${
+            className={`text-xs font-semibold px-3 py-1.5 rounded-xl transition-colors cursor-pointer flex items-center gap-1 shrink-0 ${
               activeFilter === 'correct'
                 ? 'bg-emerald-700 text-white'
                 : 'text-emerald-700 hover:bg-emerald-50'
@@ -155,7 +156,7 @@ export const StudentResponseModal: React.FC<StudentResponseModalProps> = ({
           <button
             type="button"
             onClick={() => setActiveFilter('incorrect')}
-            className={`text-xs font-semibold px-3 py-1.5 rounded-xl transition-colors cursor-pointer flex items-center gap-1 ${
+            className={`text-xs font-semibold px-3 py-1.5 rounded-xl transition-colors cursor-pointer flex items-center gap-1 shrink-0 ${
               activeFilter === 'incorrect'
                 ? 'bg-rose-700 text-white'
                 : 'text-rose-700 hover:bg-rose-50'
@@ -167,7 +168,7 @@ export const StudentResponseModal: React.FC<StudentResponseModalProps> = ({
         </div>
 
         {/* Scrollable Questions List */}
-        <div data-lenis-prevent="true" className="flex-1 overflow-y-auto px-5 sm:px-7 py-5 space-y-4">
+        <div data-lenis-prevent="true" className="flex-1 overflow-y-auto px-4 sm:px-7 py-4 sm:py-5 space-y-3.5 sm:space-y-4">
           {filteredQuestions.length === 0 ? (
             <div className="text-center py-10 text-slate-400 text-sm">
               No questions found for this filter.
@@ -184,7 +185,7 @@ export const StudentResponseModal: React.FC<StudentResponseModalProps> = ({
         </div>
 
         {/* Modal Footer */}
-        <div className="px-5 sm:px-7 py-3 bg-slate-50 border-t border-slate-200 flex justify-end">
+        <div className="px-4 sm:px-7 py-3 bg-slate-50 border-t border-slate-200 flex justify-end pb-safe">
           <Button variant="outline" size="sm" onClick={onClose}>
             Close Review
           </Button>
@@ -214,8 +215,8 @@ const QuestionResponseCard: React.FC<QuestionResponseCardProps> = ({
       }`}
     >
       {/* Header */}
-      <div className="flex items-center justify-between gap-2 mb-2.5">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-2.5">
+        <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
           <span className="font-bold text-xs bg-slate-900 text-white px-2 py-0.5 rounded-md">
             Q{questionNumber}
           </span>
@@ -231,7 +232,7 @@ const QuestionResponseCard: React.FC<QuestionResponseCardProps> = ({
           </span>
         </div>
 
-        <div className="flex items-center gap-2 text-xs font-semibold">
+        <div className="flex items-center gap-1.5 sm:gap-2 text-xs font-semibold shrink-0">
           <span className={isCorrect ? 'text-emerald-700' : 'text-rose-700'}>
             {question.marksAwarded > 0 ? `+${question.marksAwarded}` : '0'} / {question.maxMarks} Marks
           </span>

@@ -81,15 +81,15 @@ export const AdminStudentsTab: React.FC<AdminStudentsTabProps> = ({
   );
 
   return (
-    <div className={`p-6 lg:p-8 space-y-6 transition-all duration-500 ${isLoaded ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
+    <div className={`p-3.5 sm:p-6 lg:p-8 space-y-4 sm:space-y-6 transition-all duration-500 ${isLoaded ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-black text-white tracking-tight">Student Management</h2>
-          <p className="text-sm text-slate-400 mt-0.5">Provision accounts, manage access, and clear history</p>
+          <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">Student Management</h2>
+          <p className="text-xs sm:text-sm text-slate-400 mt-0.5">Provision accounts, manage access, and clear history</p>
         </div>
         <button
           onClick={() => setShowAddModal(true)}
-          className="flex items-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm px-4 py-2.5 rounded-xl shadow-lg shadow-indigo-900/30 transition-all cursor-pointer"
+          className="flex items-center justify-center gap-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs sm:text-sm px-4 py-2.5 rounded-xl shadow-lg shadow-indigo-900/30 transition-all cursor-pointer w-full sm:w-auto active:scale-95"
         >
           <PlusIcon size={15} />
           Add Student
@@ -103,7 +103,7 @@ export const AdminStudentsTab: React.FC<AdminStudentsTabProps> = ({
           placeholder="Search by name, email or student ID..."
           value={studentSearch}
           onChange={(e) => setStudentSearch(e.target.value)}
-          className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30 transition-all"
+          className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-9 pr-4 py-2.5 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/30 transition-all"
         />
       </div>
 
@@ -111,49 +111,51 @@ export const AdminStudentsTab: React.FC<AdminStudentsTabProps> = ({
         {filteredStudents.length === 0 && (
           <div className="text-center py-12 bg-slate-900 rounded-2xl border border-slate-800">
             <UsersIcon size={36} className="mx-auto text-slate-600 mb-3" />
-            <p className="text-slate-400 font-semibold">No students found</p>
+            <p className="text-slate-400 font-semibold text-xs sm:text-sm">No students found</p>
           </div>
         )}
         {filteredStudents.map((s) => (
-          <div key={s.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:border-slate-700 transition-colors">
+          <div key={s.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:border-slate-700 transition-colors">
             <div className="flex items-center gap-3 min-w-0">
               <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-indigo-500 to-violet-600 font-bold text-sm shrink-0">
                 {s.name.charAt(0)}
               </div>
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <p className="text-sm font-bold text-white">{s.name}</p>
-                  <span className={`text-[10px] font-bold border px-2 py-0.5 rounded-full capitalize ${STATUS_COLORS[s.status]}`}>
+                  <p className="text-xs sm:text-sm font-bold text-white truncate">{s.name}</p>
+                  <span className={`text-[9px] sm:text-[10px] font-bold border px-2 py-0.5 rounded-full capitalize ${STATUS_COLORS[s.status]}`}>
                     {s.status}
                   </span>
                 </div>
-                <p className="text-xs text-slate-400 truncate">{s.email}</p>
+                <p className="text-[11px] sm:text-xs text-slate-400 truncate">{s.email}</p>
                 {s.studentId && (
-                  <p className="text-[11px] font-mono text-slate-500">{s.studentId} · {s.batch}</p>
+                  <p className="text-[10px] sm:text-[11px] font-mono text-slate-500 mt-0.5">{s.studentId} · {s.batch}</p>
                 )}
               </div>
             </div>
-            <div className="flex items-center gap-2 shrink-0 flex-wrap">
+            <div className="grid grid-cols-5 sm:flex sm:items-center gap-2 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-800/80 shrink-0">
               <button
                 onClick={() => onToggleStatus(s.id)}
-                className={`text-xs font-bold px-3 py-1.5 rounded-lg border transition-all cursor-pointer ${s.status === 'active'
-                    ? 'bg-rose-950 border-rose-700 text-rose-400 hover:bg-rose-900'
-                    : 'bg-emerald-950 border-emerald-700 text-emerald-400 hover:bg-emerald-900'
+                className={`col-span-2 text-xs font-bold py-2 px-3 sm:py-1.5 rounded-xl sm:rounded-lg border transition-all cursor-pointer text-center active:scale-95 ${s.status === 'active'
+                    ? 'bg-rose-950/80 border-rose-700/80 text-rose-400 hover:bg-rose-900'
+                    : 'bg-emerald-950/80 border-emerald-700/80 text-emerald-400 hover:bg-emerald-900'
                   }`}
               >
                 {s.status === 'active' ? 'Suspend' : 'Activate'}
               </button>
               <button
                 onClick={() => onClearHistory(s.id, s.name)}
-                className="text-xs font-bold bg-slate-800 border border-slate-700 text-slate-400 hover:text-amber-400 hover:border-amber-700 px-3 py-1.5 rounded-lg transition-all cursor-pointer"
+                className="col-span-2 text-xs font-bold bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-amber-400 hover:border-amber-700 py-2 px-3 sm:py-1.5 rounded-xl sm:rounded-lg transition-all cursor-pointer text-center active:scale-95 truncate"
               >
                 Clear History
               </button>
               <button
                 onClick={() => onDeleteStudent(s.id, s.name)}
-                className="text-xs font-bold bg-slate-800 border border-slate-700 text-slate-400 hover:text-rose-400 hover:border-rose-700 px-2.5 py-1.5 rounded-lg transition-all cursor-pointer"
+                className="col-span-1 flex items-center justify-center text-xs font-bold bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-400 hover:text-rose-400 hover:border-rose-700 py-2 px-2.5 sm:py-1.5 rounded-xl sm:rounded-lg transition-all cursor-pointer active:scale-95"
+                title="Delete Student Account"
+                aria-label="Delete Student"
               >
-                <TrashIcon size={13} />
+                <TrashIcon size={14} />
               </button>
             </div>
           </div>
@@ -307,10 +309,10 @@ const AddStudentModal: React.FC<{
   };
 
   return (
-    <div className="fixed inset-0 z-[9998] flex items-center justify-center p-4" data-lenis-prevent="true">
-      <div className="absolute inset-0 bg-black/75 backdrop-blur-sm" onClick={onClose} />
+    <div className="fixed inset-0 z-[9998] flex items-center justify-center p-3 sm:p-4 pb-safe" data-lenis-prevent="true">
+      <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" onClick={onClose} />
 
-      <div className="relative bg-slate-900 border border-slate-700 rounded-3xl p-6 sm:p-7 w-full max-w-lg shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">
+      <div className="relative bg-slate-900 border border-slate-700/80 rounded-2xl sm:rounded-3xl p-4 sm:p-7 w-full max-w-lg shadow-2xl overflow-hidden max-h-[92vh] flex flex-col">
         {/* MODAL HEADER */}
         <div className="flex items-center justify-between pb-4 border-b border-slate-800 mb-5 shrink-0">
           <div className="flex items-center gap-3">

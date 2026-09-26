@@ -239,7 +239,7 @@ export default function LandingPage() {
               variant="outline"
               size="sm"
               onClick={scrollToLogin}
-              className="lg:hidden text-xs px-2.5 py-1.5"
+              className="hidden sm:inline-flex text-xs px-2.5 py-1.5"
             >
               Sign In
             </Button>
@@ -578,7 +578,9 @@ export default function LandingPage() {
 
       {/* Subtle Footer */}
       <footer className="py-4 px-4 text-center text-[11px] text-slate-400 border-t border-slate-200">
-        <p>© 2025 Test Portal Systems. Butter-smooth scrolling & bcrypt token authentication.</p>
+        <p className="max-w-md mx-auto leading-relaxed">
+          © 2025 Test Portal Systems · Encrypted & Proctoring Ready
+        </p>
       </footer>
     </div>
   );

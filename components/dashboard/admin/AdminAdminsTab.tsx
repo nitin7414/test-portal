@@ -91,15 +91,15 @@ export const AdminAdminsTab: React.FC<AdminAdminsTabProps> = ({
   }
 
   return (
-    <div className={`p-6 lg:p-8 space-y-6 transition-all duration-500 ${isLoaded ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
+    <div className={`p-3.5 sm:p-6 lg:p-8 space-y-4 sm:space-y-6 transition-all duration-500 ${isLoaded ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-black text-white tracking-tight">Administrator Management</h2>
-          <p className="text-sm text-slate-400 mt-0.5">Provision and manage administrator credentials with platform control</p>
+          <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">Administrator Management</h2>
+          <p className="text-xs sm:text-sm text-slate-400 mt-0.5">Provision and manage administrator credentials with platform control</p>
         </div>
         <button
           onClick={() => setShowAddModal(true)}
-          className="flex items-center gap-2 bg-violet-600 hover:bg-violet-500 text-white font-bold text-sm px-4 py-2.5 rounded-xl shadow-lg shadow-violet-900/30 transition-all cursor-pointer"
+          className="flex items-center justify-center gap-2 bg-violet-600 hover:bg-violet-500 text-white font-bold text-xs sm:text-sm px-4 py-2.5 rounded-xl shadow-lg shadow-violet-900/30 transition-all cursor-pointer w-full sm:w-auto active:scale-95"
         >
           <PlusIcon size={15} />
           Add Administrator
@@ -113,7 +113,7 @@ export const AdminAdminsTab: React.FC<AdminAdminsTabProps> = ({
           placeholder="Search administrators by name or email..."
           value={adminSearch}
           onChange={(e) => setAdminSearch(e.target.value)}
-          className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-9 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500/30 transition-all"
+          className="w-full bg-slate-900 border border-slate-700 rounded-xl pl-9 pr-4 py-2.5 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-violet-500 focus:ring-1 focus:ring-violet-500/30 transition-all"
         />
       </div>
 
@@ -121,53 +121,55 @@ export const AdminAdminsTab: React.FC<AdminAdminsTabProps> = ({
         {filteredAdmins.length === 0 && (
           <div className="text-center py-12 bg-slate-900 rounded-2xl border border-slate-800">
             <ShieldIcon size={36} className="mx-auto text-slate-600 mb-3" />
-            <p className="text-slate-400 font-semibold">No administrators found</p>
+            <p className="text-slate-400 font-semibold text-xs sm:text-sm">No administrators found</p>
           </div>
         )}
         {filteredAdmins.map((a) => (
-          <div key={a.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:border-slate-700 transition-colors">
+          <div key={a.id} className="bg-slate-900 border border-slate-800 rounded-2xl p-3.5 sm:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 hover:border-slate-700 transition-colors">
             <div className="flex items-center gap-3 min-w-0">
               <div className="flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-violet-500 to-indigo-600 font-bold text-sm shrink-0">
                 {a.name.charAt(0)}
               </div>
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 flex-wrap">
-                  <p className="text-sm font-bold text-white">{a.name}</p>
+                  <p className="text-xs sm:text-sm font-bold text-white truncate">{a.name}</p>
                   {a.id === 'usr_admin_dev_001' && (
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                    <span className="text-[9px] sm:text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
                       Developer Root
                     </span>
                   )}
-                  <span className={`text-[10px] font-bold border px-2 py-0.5 rounded-full capitalize ${STATUS_COLORS[a.status]}`}>
+                  <span className={`text-[9px] sm:text-[10px] font-bold border px-2 py-0.5 rounded-full capitalize ${STATUS_COLORS[a.status]}`}>
                     {a.status}
                   </span>
                 </div>
-                <p className="text-xs text-slate-400 truncate">{a.email}</p>
-                <p className="text-[11px] font-mono text-slate-500">
+                <p className="text-[11px] sm:text-xs text-slate-400 truncate">{a.email}</p>
+                <p className="text-[10px] sm:text-[11px] font-mono text-slate-500 mt-0.5">
                   Joined {new Date(a.createdAt).toLocaleDateString()}
                 </p>
               </div>
             </div>
             {a.id !== 'usr_admin_dev_001' ? (
-              <div className="flex items-center gap-2 shrink-0 flex-wrap">
+              <div className="grid grid-cols-4 sm:flex sm:items-center gap-2 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-800/80 shrink-0">
                 <button
                   onClick={() => onToggleAdminStatus(a.id)}
-                  className={`text-xs font-bold px-3 py-1.5 rounded-lg border transition-all cursor-pointer ${a.status === 'active'
-                      ? 'bg-rose-950 border-rose-700 text-rose-400 hover:bg-rose-900'
-                      : 'bg-emerald-950 border-emerald-700 text-emerald-400 hover:bg-emerald-900'
+                  className={`col-span-3 text-xs font-bold py-2 px-3 sm:py-1.5 rounded-xl sm:rounded-lg border transition-all cursor-pointer text-center active:scale-95 ${a.status === 'active'
+                      ? 'bg-rose-950/80 border-rose-700/80 text-rose-400 hover:bg-rose-900'
+                      : 'bg-emerald-950/80 border-emerald-700/80 text-emerald-400 hover:bg-emerald-900'
                     }`}
                 >
                   {a.status === 'active' ? 'Suspend' : 'Activate'}
                 </button>
                 <button
                   onClick={() => onDeleteAdmin(a.id, a.name)}
-                  className="text-xs font-bold bg-slate-800 border border-slate-700 text-slate-400 hover:text-rose-400 hover:border-rose-700 px-2.5 py-1.5 rounded-lg transition-all cursor-pointer"
+                  className="col-span-1 flex items-center justify-center text-xs font-bold bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-400 hover:text-rose-400 hover:border-rose-700 py-2 px-2.5 sm:py-1.5 rounded-xl sm:rounded-lg transition-all cursor-pointer active:scale-95"
+                  title="Remove Administrator Privileges"
+                  aria-label="Delete Administrator"
                 >
-                  <TrashIcon size={13} />
+                  <TrashIcon size={14} />
                 </button>
               </div>
             ) : (
-              <div className="text-[11px] font-medium text-slate-500 italic px-2 py-1 bg-slate-800/50 rounded-lg border border-slate-800">
+              <div className="text-[11px] font-medium text-slate-500 italic px-3 py-1.5 bg-slate-800/50 rounded-xl border border-slate-800 text-center sm:text-left">
                 Protected Root Admin
               </div>
             )}

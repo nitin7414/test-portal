@@ -30,16 +30,16 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
   };
 
   return (
-    <div className={`p-6 lg:p-8 space-y-6 transition-all duration-500 ${isLoaded ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
+    <div className={`p-3.5 sm:p-6 lg:p-8 space-y-4 sm:space-y-6 transition-all duration-500 ${isLoaded ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'}`}>
       <div>
-        <h2 className="text-2xl font-black text-white tracking-tight">System Settings</h2>
-        <p className="text-sm text-slate-400 mt-0.5">Manage sessions, platform data, and system configuration</p>
+        <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">System Settings</h2>
+        <p className="text-xs sm:text-sm text-slate-400 mt-0.5">Manage sessions, platform data, and system configuration</p>
       </div>
 
       {stats && (
-        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
-          <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">Portal Information</h3>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+        <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 space-y-3 sm:space-y-4">
+          <h3 className="text-xs sm:text-sm font-bold uppercase tracking-wider text-slate-400">Portal Information</h3>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 sm:gap-4">
             {[
               { label: 'Admin Account', value: session.user.email },
               { label: 'Students', value: String(stats.totalStudents) },
@@ -49,16 +49,16 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
               { label: 'Avg Score', value: `${stats.averageScore}%` },
             ].map((item) => (
               <div key={item.label}>
-                <p className="text-[11px] text-slate-500 font-medium">{item.label}</p>
-                <p className="text-sm font-bold text-white mt-0.5 truncate">{item.value}</p>
+                <p className="text-[10px] sm:text-[11px] text-slate-500 font-medium">{item.label}</p>
+                <p className="text-xs sm:text-sm font-bold text-white mt-0.5 truncate">{item.value}</p>
               </div>
             ))}
           </div>
         </div>
       )}
 
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
-        <h3 className="text-sm font-bold uppercase tracking-wider text-slate-400">System Actions</h3>
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 sm:p-6 space-y-3 sm:space-y-4">
+        <h3 className="text-xs sm:text-sm font-bold uppercase tracking-wider text-slate-400">System Actions</h3>
         <div className="space-y-3">
           {[
             {
@@ -77,20 +77,20 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
               icon: <AlertTriangleIcon size={16} className="text-rose-400" />,
             },
           ].map((sa) => (
-            <div key={sa.key} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-800/40 border border-slate-800 rounded-xl p-4">
+            <div key={sa.key} className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-800/40 border border-slate-800 rounded-xl p-3.5 sm:p-4">
               <div className="flex items-start gap-3">
                 <div className="mt-0.5 shrink-0">{sa.icon}</div>
                 <div>
-                  <p className="text-sm font-bold text-white">{sa.label}</p>
-                  <p className="text-xs text-slate-400 mt-0.5 max-w-sm">{sa.sub}</p>
+                  <p className="text-xs sm:text-sm font-bold text-white">{sa.label}</p>
+                  <p className="text-[11px] sm:text-xs text-slate-400 mt-0.5 max-w-sm leading-relaxed">{sa.sub}</p>
                 </div>
               </div>
               {resetConfirm === sa.key ? (
-                <div className="flex items-center gap-2 shrink-0">
-                  <span className="text-xs text-slate-400">Are you sure?</span>
+                <div className="flex items-center gap-2 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-800/80">
+                  <span className="text-xs text-slate-400">Confirm?</span>
                   <button
                     onClick={() => handleAction(sa.key)}
-                    className={`text-xs font-bold px-3 py-1.5 rounded-lg cursor-pointer text-white ${sa.color === 'amber' ? 'bg-amber-600 hover:bg-amber-500' :
+                    className={`text-xs font-bold px-3 py-2 sm:py-1.5 rounded-lg cursor-pointer text-white active:scale-95 ${sa.color === 'amber' ? 'bg-amber-600 hover:bg-amber-500' :
                         sa.color === 'blue' ? 'bg-blue-600 hover:bg-blue-500' : 'bg-rose-600 hover:bg-rose-500'
                       }`}
                   >
@@ -98,7 +98,7 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
                   </button>
                   <button
                     onClick={() => setResetConfirm(null)}
-                    className="text-xs font-bold bg-slate-700 text-slate-300 hover:bg-slate-600 px-3 py-1.5 rounded-lg cursor-pointer"
+                    className="text-xs font-bold bg-slate-700 text-slate-300 hover:bg-slate-600 px-3 py-2 sm:py-1.5 rounded-lg cursor-pointer active:scale-95"
                   >
                     Cancel
                   </button>
@@ -106,7 +106,7 @@ export const AdminSettingsTab: React.FC<AdminSettingsTabProps> = ({
               ) : (
                 <button
                   onClick={() => setResetConfirm(sa.key)}
-                  className={`text-xs font-bold px-3 py-1.5 rounded-lg shrink-0 cursor-pointer text-white ${sa.color === 'amber' ? 'bg-amber-600 hover:bg-amber-500' :
+                  className={`text-xs font-bold py-2 sm:py-1.5 px-3 rounded-lg shrink-0 cursor-pointer text-white w-full sm:w-auto text-center active:scale-95 ${sa.color === 'amber' ? 'bg-amber-600 hover:bg-amber-500' :
                       sa.color === 'blue' ? 'bg-blue-600 hover:bg-blue-500' : 'bg-rose-600 hover:bg-rose-500'
                     }`}
                 >

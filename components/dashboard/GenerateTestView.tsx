@@ -8,6 +8,7 @@ import {
   extractTextFromPdfFile,
   parseQuestionsFromRawText,
   unpackQuestionOptions,
+  validateExtractedQuestion,
   ExtractedQuestion,
 } from '@/lib/pdf-parser';
 import {
@@ -83,6 +84,12 @@ export const GenerateTestView: React.FC<GenerateTestViewProps> = ({
   const [rawText, setRawText] = useState('');
   const [showRawTextEditor, setShowRawTextEditor] = useState(false);
 
+  // Expected option count setting (auto, 4, 5)
+  const [expectedOptionCount, setExpectedOptionCount] = useState<'auto' | 4 | 5>('auto');
+
+  // Review Queue filter mode: 'all' vs 'needs-review'
+  const [filterMode, setFilterMode] = useState<'all' | 'needs-review'>('all');
+
   // Extracted questions state
   const [questions, setQuestions] = useState<ExtractedQuestion[]>([]);
   const [parseWarnings, setParseWarnings] = useState<string[]>([]);
@@ -115,6 +122,21 @@ export const GenerateTestView: React.FC<GenerateTestViewProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Helper to revalidate an extracted question against the expected option count and sanity rules
+  const revalidateQuestion = (
+    q: ExtractedQuestion,
+    optPref?: 'auto' | 4 | 5
+  ): ExtractedQuestion => {
+    const pref = optPref || expectedOptionCount;
+    const target = pref === 'auto' ? (q.options.length === 5 ? 5 : 4) : pref;
+    const val = validateExtractedQuestion(q, target, 150);
+    return {
+      ...q,
+      needsReview: val.needsReview,
+      reviewReasons: [...val.errors, ...val.warnings],
+    };
+  };
+
   // Handle PDF file selection
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const selected = e.target.files?.[0];
@@ -131,7 +153,10 @@ export const GenerateTestView: React.FC<GenerateTestViewProps> = ({
     try {
       const extracted = await extractTextFromPdfFile(selected);
       setRawText(extracted);
-      const usedFallback = await processExtractedText(extracted, selected.name.replace(/\.[^/.]+$/, ''));
+      const usedFallback = await processExtractedText(
+        extracted,
+        selected.name.replace(/\.[^/.]+$/, '')
+      );
       if (!usedFallback) {
         showToast(`Successfully extracted text from "${selected.name}"`);
       }
@@ -143,14 +168,20 @@ export const GenerateTestView: React.FC<GenerateTestViewProps> = ({
     }
   };
 
-  // Process raw text into structured questions
-  const processExtractedText = async (text: string, defaultName?: string): Promise<boolean> => {
-    // Primary path: Fast local regex parser
-    let res = parseQuestionsFromRawText(text);
+  // Process raw text into structured questions with pre-segmentation and option caps
+  const processExtractedText = async (
+    text: string,
+    defaultName?: string,
+    optCountOverride?: 'auto' | 4 | 5
+  ): Promise<boolean> => {
+    const activePref = optCountOverride !== undefined ? optCountOverride : expectedOptionCount;
+    const countParam = activePref === 'auto' ? undefined : activePref;
+
+    // Primary path: Fast local pre-segmented regex parser
+    let res = parseQuestionsFromRawText(text, { expectedOptionsCount: countParam });
     let usedFallback = false;
 
     // Check if regex extraction was empty or insufficient
-    // ("insufficient" defined as: zero questions, questions with < 2 options, dummy options, or missing correct answer)
     const isInsufficient =
       res.questions.length === 0 ||
       res.questions.some(
@@ -163,17 +194,17 @@ export const GenerateTestView: React.FC<GenerateTestViewProps> = ({
       ) ||
       res.identifiedAnswersCount < res.questions.length;
 
-    // Fallback path: If regex extraction produces zero questions, missing questions,
-    // or empty/malformed answer keys, fall back to Groq LLM extraction via /api/generate-test.
-    // NOTE: This must remain strictly a fallback path (never the primary path)
-    // in order to control API usage and minimize cost on the free tier.
+    // Fallback path: Groq LLM extraction if local parser cannot extract questions
     if (isInsufficient) {
       setIsExtracting(true);
       try {
         const response = await fetch('/api/generate-test', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ rawText: text }),
+          body: JSON.stringify({
+            rawText: text,
+            expectedOptionCount: countParam,
+          }),
         });
 
         if (!response.ok) {
@@ -203,6 +234,12 @@ export const GenerateTestView: React.FC<GenerateTestViewProps> = ({
     setQuestions(res.questions);
     setParseWarnings(res.warnings);
     setHasParsed(true);
+
+    if (res.flaggedQuestionsCount > 0) {
+      setFilterMode('needs-review');
+    } else {
+      setFilterMode('all');
+    }
 
     // Auto-generate title & code if blank
     if (!title) {
@@ -239,11 +276,12 @@ export const GenerateTestView: React.FC<GenerateTestViewProps> = ({
       return;
     }
     setIsExtracting(true);
+    const countParam = expectedOptionCount === 'auto' ? undefined : expectedOptionCount;
     try {
       const response = await fetch('/api/generate-test', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rawText }),
+        body: JSON.stringify({ rawText, expectedOptionCount: countParam }),
       });
 
       if (!response.ok) {
@@ -256,6 +294,9 @@ export const GenerateTestView: React.FC<GenerateTestViewProps> = ({
         setQuestions(fallbackResult.questions);
         setParseWarnings(fallbackResult.warnings || []);
         setHasParsed(true);
+        if (fallbackResult.flaggedQuestionsCount > 0) {
+          setFilterMode('needs-review');
+        }
         showToast(`AI successfully extracted ${fallbackResult.questions.length} questions!`);
       } else {
         showToast('AI parser was unable to detect questions in the text.', 'error');
@@ -268,62 +309,67 @@ export const GenerateTestView: React.FC<GenerateTestViewProps> = ({
     }
   };
 
-  // Question editing handlers
-  const handleUpdatePrompt = (index: number, newPrompt: string) => {
-    setQuestions((prev) => {
-      const copy = [...prev];
-      copy[index].prompt = newPrompt;
-      return copy;
-    });
+  // Question editing handlers with instant re-validation
+  const handleUpdatePrompt = (qId: string, newPrompt: string) => {
+    setQuestions((prev) =>
+      prev.map((q) => (q.id === qId ? revalidateQuestion({ ...q, prompt: newPrompt }) : q))
+    );
   };
 
-  const handleUpdateOption = (qIndex: number, optIndex: number, newText: string) => {
-    setQuestions((prev) => {
-      const copy = [...prev];
-      copy[qIndex].options[optIndex].text = newText;
-      return copy;
-    });
+  const handleUpdateOption = (qId: string, optIndex: number, newText: string) => {
+    setQuestions((prev) =>
+      prev.map((q) => {
+        if (q.id !== qId) return q;
+        const newOpts = [...q.options];
+        newOpts[optIndex] = { ...newOpts[optIndex], text: newText };
+        return revalidateQuestion({ ...q, options: newOpts });
+      })
+    );
   };
 
-  const handleSetCorrectOption = (qIndex: number, optKey: string) => {
-    setQuestions((prev) => {
-      const copy = [...prev];
-      copy[qIndex].correctOptionKey = optKey;
-      return copy;
-    });
+  const handleSetCorrectOption = (qId: string, optKey: string) => {
+    setQuestions((prev) =>
+      prev.map((q) =>
+        q.id === qId ? revalidateQuestion({ ...q, correctOptionKey: optKey }) : q
+      )
+    );
   };
 
-  const handleUpdateExplanation = (index: number, newExp: string) => {
-    setQuestions((prev) => {
-      const copy = [...prev];
-      copy[index].explanation = newExp;
-      return copy;
-    });
+  const handleUpdateExplanation = (qId: string, newExp: string) => {
+    setQuestions((prev) =>
+      prev.map((q) => (q.id === qId ? { ...q, explanation: newExp } : q))
+    );
   };
 
-  const handleDeleteQuestion = (index: number) => {
-    setQuestions((prev) => prev.filter((_, i) => i !== index));
+  const handleDeleteQuestion = (qId: string) => {
+    setQuestions((prev) => prev.filter((q) => q.id !== qId));
     showToast('Question removed.');
   };
 
   const handleAddQuestion = () => {
     const nextNum = questions.length + 1;
+    const targetCount = expectedOptionCount === 5 ? 5 : 4;
+    const defaultOptions = [
+      { id: `opt_${nextNum}_a`, key: 'A', text: 'Option A' },
+      { id: `opt_${nextNum}_b`, key: 'B', text: 'Option B' },
+      { id: `opt_${nextNum}_c`, key: 'C', text: 'Option C' },
+      { id: `opt_${nextNum}_d`, key: 'D', text: 'Option D' },
+    ];
+    if (targetCount === 5) {
+      defaultOptions.push({ id: `opt_${nextNum}_e`, key: 'E', text: 'Option E' });
+    }
+
     const newQ: ExtractedQuestion = {
       id: `q_manual_${Date.now()}`,
       questionNumber: nextNum,
       prompt: `New Question ${nextNum}`,
-      options: [
-        { id: `opt_${nextNum}_a`, key: 'A', text: 'Option A' },
-        { id: `opt_${nextNum}_b`, key: 'B', text: 'Option B' },
-        { id: `opt_${nextNum}_c`, key: 'C', text: 'Option C' },
-        { id: `opt_${nextNum}_d`, key: 'D', text: 'Option D' },
-      ],
+      options: defaultOptions,
       correctOptionKey: 'A',
       explanation: 'Explanation for correct response.',
       marks: marksPerQuestion,
       negativeMarks: negativeMarks,
     };
-    setQuestions((prev) => [...prev, newQ]);
+    setQuestions((prev) => [...prev, revalidateQuestion(newQ)]);
   };
 
   // Student selection handlers
@@ -341,7 +387,7 @@ export const GenerateTestView: React.FC<GenerateTestViewProps> = ({
     setAssignedStudentIds([]);
   };
 
-  // Final submission handler ("Upload Paper")
+  // Final submission handler ("Upload Paper") with strict validation gating
   const handleUploadPaper = () => {
     if (!title.trim()) {
       showToast('Please provide a test title', 'error');
@@ -357,6 +403,22 @@ export const GenerateTestView: React.FC<GenerateTestViewProps> = ({
     }
     if (targetAudience === 'specific' && assignedStudentIds.length === 0) {
       showToast('Please select at least one student when specific visibility is selected', 'error');
+      return;
+    }
+
+    // GATING PASS: Reject publishing if any question has critical validation errors
+    const targetOptCount = expectedOptionCount === 'auto' ? undefined : expectedOptionCount;
+    const unresolvedQuestions = questions.filter((q) => {
+      const v = validateExtractedQuestion(q, targetOptCount || q.options.length, 150);
+      return v.needsReview && v.errors.length > 0;
+    });
+
+    if (unresolvedQuestions.length > 0) {
+      showToast(
+        `${unresolvedQuestions.length} question(s) have unresolved errors (option count mismatch or invalid text). Please fix them in the review queue before publishing.`,
+        'error'
+      );
+      setFilterMode('needs-review');
       return;
     }
 
@@ -376,14 +438,11 @@ export const GenerateTestView: React.FC<GenerateTestViewProps> = ({
       const unpackedOptions = unpackQuestionOptions(baseOptions, qId);
 
       // Find the correct option ID from the POST-unpack array to avoid stale IDs.
-      // First try matching by key suffix (e.g., option with key 'B' has id ending in '_b').
-      // Fall back to index-based mapping if key-based lookup fails.
       const correctKeyLower = (q.correctOptionKey || 'A').toLowerCase();
       let correctOptionId = unpackedOptions.find(
         (opt) => opt.id.endsWith(`_${correctKeyLower}`)
       )?.id;
 
-      // Fallback: try original options array for the key, then verify it exists in unpacked
       if (!correctOptionId) {
         const matchedOpt = q.options.find((opt) => opt.key === q.correctOptionKey);
         if (matchedOpt && unpackedOptions.some((u) => u.id === matchedOpt.id)) {
@@ -391,17 +450,21 @@ export const GenerateTestView: React.FC<GenerateTestViewProps> = ({
         }
       }
 
-      // Fallback: use index mapping (A=0, B=1, C=2, D=3)
       if (!correctOptionId) {
         const keyIndex = (q.correctOptionKey || 'A').charCodeAt(0) - 65;
         correctOptionId = unpackedOptions[keyIndex]?.id || unpackedOptions[0]?.id || 'opt_a';
       }
 
+      // If question has an associated reading comprehension passage, prepend it cleanly or store it
+      const promptWithPassage = q.passageContext
+        ? `[Passage Context: ${q.passageContext.slice(0, 160)}...]\n\n${q.prompt}`
+        : q.prompt;
+
       return {
         id: qId,
         sectionId: 'sec_main',
         type: 'single-choice',
-        prompt: q.prompt,
+        prompt: promptWithPassage,
         codeSnippet: q.codeSnippet,
         options: unpackedOptions,
         marks: marksPerQuestion,
@@ -411,12 +474,12 @@ export const GenerateTestView: React.FC<GenerateTestViewProps> = ({
       };
     });
 
-    // P1-5: Validate questions before persistence — reject malformed ones
+    // Final integrity check
     const validQuestions: Question[] = [];
     const rejectedWarnings: string[] = [];
     for (const q of formalQuestions) {
       const issues: string[] = [];
-      if (!q.prompt || q.prompt.startsWith('Question ') && q.prompt.match(/^Question \d+$/)) {
+      if (!q.prompt || (q.prompt.startsWith('Question ') && q.prompt.match(/^Question \d+$/))) {
         issues.push('empty prompt');
       }
       if (!q.options || q.options.length < 2) {
@@ -499,9 +562,9 @@ export const GenerateTestView: React.FC<GenerateTestViewProps> = ({
   });
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 pb-36 lg:pb-12 space-y-8 animate-fade-in max-w-6xl mx-auto">
+    <div className="p-3.5 sm:p-6 lg:p-8 pb-36 lg:pb-12 space-y-5 sm:space-y-8 animate-fade-in max-w-6xl mx-auto">
       {/* Header Banner */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 border-b border-slate-800 pb-5 sm:pb-6">
         <div>
           <div className="flex items-center gap-2 mb-1.5">
             <span className="text-[10px] font-bold uppercase tracking-widest text-indigo-400 bg-indigo-950/60 border border-indigo-800 px-2.5 py-0.5 rounded-full flex items-center gap-1">
@@ -509,7 +572,7 @@ export const GenerateTestView: React.FC<GenerateTestViewProps> = ({
               PDF Question Paper Parser
             </span>
           </div>
-          <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight">Generate New Test</h2>
+          <h2 className="text-xl sm:text-3xl font-black text-white tracking-tight">Generate New Test</h2>
           <p className="text-xs sm:text-sm text-slate-400 mt-1">
             Upload a PDF question paper to automatically extract MCQs, options, and answers, then schedule and showcase the test on the student portal.
           </p>
@@ -518,7 +581,7 @@ export const GenerateTestView: React.FC<GenerateTestViewProps> = ({
         <button
           type="button"
           onClick={handleLoadSample}
-          className="flex items-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-bold text-xs px-4 py-2.5 rounded-xl border border-slate-700 transition-all cursor-pointer shrink-0"
+          className="flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white font-bold text-xs px-4 py-2.5 rounded-xl border border-slate-700 transition-all cursor-pointer shrink-0 w-full sm:w-auto active:scale-95"
         >
           <SparklesIcon size={14} className="text-amber-400" />
           Load Sample Paper
@@ -526,7 +589,7 @@ export const GenerateTestView: React.FC<GenerateTestViewProps> = ({
       </div>
 
       {/* STEP 1: PDF DROPZONE & UPLOADER */}
-      <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 space-y-5">
+      <div className="bg-slate-900 border border-slate-800 rounded-2xl sm:rounded-3xl p-4 sm:p-8 space-y-4 sm:space-y-5">
         <div className="flex items-center justify-between">
           <label className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
             <FileTextIcon size={15} className="text-indigo-400" />
@@ -571,6 +634,60 @@ export const GenerateTestView: React.FC<GenerateTestViewProps> = ({
                 Standard format: Question statements, options (A, B, C, D), and answer keys (e.g. "Ans: B" or end answer table)
               </p>
             </div>
+          </div>
+        </div>
+
+        {/* Expected Options Setting (Hard Cap & Target Count) */}
+        <div className="flex flex-wrap items-center justify-between gap-3 p-3.5 bg-slate-950/60 border border-slate-800/80 rounded-2xl">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-slate-300">Expected Options per Question:</span>
+            <span className="text-[11px] text-slate-500 hidden sm:inline">
+              (Enforces option cap & cross-section boundary protection)
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 bg-slate-900 p-1 rounded-xl border border-slate-800">
+            <button
+              type="button"
+              onClick={() => {
+                setExpectedOptionCount('auto');
+                if (rawText) processExtractedText(rawText, undefined, 'auto');
+              }}
+              className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                expectedOptionCount === 'auto'
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              Auto-Detect
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setExpectedOptionCount(4);
+                if (rawText) processExtractedText(rawText, undefined, 4);
+              }}
+              className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                expectedOptionCount === 4
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              4 Options (A–D)
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setExpectedOptionCount(5);
+                if (rawText) processExtractedText(rawText, undefined, 5);
+              }}
+              className={`px-3 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                expectedOptionCount === 5
+                  ? 'bg-indigo-600 text-white shadow-xs'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              5 Options (A–E)
+            </button>
           </div>
         </div>
 
@@ -883,177 +1000,294 @@ export const GenerateTestView: React.FC<GenerateTestViewProps> = ({
         </div>
       )}
 
-      {/* STEP 3: INTERACTIVE QUESTIONS REVIEW & EDITOR */}
-      {hasParsed && (
-        <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-900 border border-slate-800 p-4 rounded-2xl">
-            <div>
-              <h3 className="text-base font-bold text-white flex items-center gap-2">
-                <CheckCircleIcon size={16} className="text-emerald-400" />
-                Review & Edit Extracted Questions ({questions.length})
-              </h3>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Verify each question prompt, options, and designated correct answer before publishing.
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={handleAddQuestion}
-              className="flex items-center gap-1.5 text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-2 rounded-xl border border-slate-700 cursor-pointer transition-all self-start sm:self-auto"
-            >
-              <PlusIcon size={13} />
-              Add Question
-            </button>
-          </div>
+      {/* STEP 3: INTERACTIVE QUESTIONS REVIEW & REVIEW QUEUE */}
+      {hasParsed && (() => {
+        const flaggedQuestions = questions.filter((q) => q.needsReview);
+        const flaggedCount = flaggedQuestions.length;
+        const displayedQuestions =
+          filterMode === 'needs-review' ? flaggedQuestions : questions;
 
-          {parseWarnings.length > 0 && (
-            <div className="p-4 bg-amber-950/20 border border-amber-800/40 rounded-2xl text-xs text-amber-300 space-y-1">
-              <div className="font-bold flex items-center gap-1.5 text-amber-200">
-                <AlertTriangleIcon size={14} /> Parser Notices:
-              </div>
-              {parseWarnings.map((w, idx) => (
-                <p key={idx}>• {w}</p>
-              ))}
-            </div>
-          )}
-
-          {/* Question Cards List */}
+        return (
           <div className="space-y-4">
-            {questions.map((q, qIdx) => (
-              <div
-                key={q.id}
-                className="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 space-y-4 hover:border-slate-700 transition-colors"
+            {/* Header & Add Button */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-900 border border-slate-800 p-4 rounded-2xl">
+              <div>
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <CheckCircleIcon size={16} className="text-emerald-400" />
+                  Review & Edit Extracted Questions ({questions.length})
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Verify each question prompt, options, and designated correct answer before publishing.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleAddQuestion}
+                className="flex items-center gap-1.5 text-xs font-bold bg-slate-800 hover:bg-slate-700 text-slate-200 px-3 py-2 rounded-xl border border-slate-700 cursor-pointer transition-all self-start sm:self-auto"
               >
-                {/* Question Top Bar */}
-                <div className="flex items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-black bg-indigo-600 text-white px-2.5 py-1 rounded-lg">
-                      Q{q.questionNumber || qIdx + 1}
-                    </span>
-                    <span className="text-xs font-bold text-emerald-400 bg-emerald-950/40 border border-emerald-800/50 px-2.5 py-0.5 rounded-full flex items-center gap-1">
-                      <CheckCircleIcon size={12} />
-                      Correct: Option {q.correctOptionKey}
-                    </span>
-                  </div>
+                <PlusIcon size={13} />
+                Add Question
+              </button>
+            </div>
 
-                  <button
-                    type="button"
-                    onClick={() => handleDeleteQuestion(qIdx)}
-                    className="text-slate-500 hover:text-rose-400 p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
-                    title="Delete this question"
+            {/* NEEDS REVIEW QUEUE BANNER */}
+            {flaggedCount > 0 && (
+              <div className="bg-amber-950/30 border border-amber-600/40 rounded-2xl p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-start gap-3">
+                  <div className="h-9 w-9 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0 mt-0.5">
+                    <AlertTriangleIcon size={18} />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-extrabold text-amber-200">
+                      Review Queue: {flaggedCount} Question{flaggedCount > 1 ? 's' : ''} Require Verification
+                    </h4>
+                    <p className="text-xs text-amber-300/80 mt-0.5">
+                      Validation detected questions with abnormal option counts, excessive text length, or potential section boundary conflicts. Please review and resolve them before publishing.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setFilterMode(filterMode === 'needs-review' ? 'all' : 'needs-review')}
+                  className="px-3.5 py-2 bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs rounded-xl transition-all cursor-pointer shrink-0 shadow-xs"
+                >
+                  {filterMode === 'needs-review' ? 'View All Questions' : `Show Needs Review (${flaggedCount})`}
+                </button>
+              </div>
+            )}
+
+            {/* Filter Tabs */}
+            <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
+              <button
+                type="button"
+                onClick={() => setFilterMode('all')}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  filterMode === 'all'
+                    ? 'bg-slate-800 text-white'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                All Questions ({questions.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => setFilterMode('needs-review')}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                  filterMode === 'needs-review'
+                    ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                    : 'text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <span>Needs Review</span>
+                {flaggedCount > 0 && (
+                  <span className="bg-amber-500 text-slate-950 text-[10px] font-black px-1.5 py-0.5 rounded-full">
+                    {flaggedCount}
+                  </span>
+                )}
+              </button>
+            </div>
+
+            {parseWarnings.length > 0 && (
+              <div className="p-4 bg-amber-950/20 border border-amber-800/40 rounded-2xl text-xs text-amber-300 space-y-1">
+                <div className="font-bold flex items-center gap-1.5 text-amber-200">
+                  <AlertTriangleIcon size={14} /> Parser Notices:
+                </div>
+                {parseWarnings.map((w, idx) => (
+                  <p key={idx}>• {w}</p>
+                ))}
+              </div>
+            )}
+
+            {/* Question Cards List */}
+            <div className="space-y-4">
+              {displayedQuestions.length === 0 ? (
+                <div className="p-8 text-center bg-slate-900 border border-slate-800 rounded-3xl text-slate-400 text-xs">
+                  No questions match the current filter.
+                </div>
+              ) : (
+                displayedQuestions.map((q) => (
+                  <div
+                    key={q.id}
+                    className={`bg-slate-900 rounded-3xl p-5 sm:p-6 space-y-4 transition-colors border ${
+                      q.needsReview
+                        ? 'border-amber-600/50 shadow-md shadow-amber-950/20'
+                        : 'border-slate-800 hover:border-slate-700'
+                    }`}
                   >
-                    <TrashIcon size={15} />
-                  </button>
-                </div>
+                    {/* Question Top Bar */}
+                    <div className="flex items-center justify-between gap-2 border-b border-slate-800/80 pb-3">
+                      <div className="flex items-center flex-wrap gap-2">
+                        <span className="text-xs font-black bg-indigo-600 text-white px-2.5 py-1 rounded-lg">
+                          Q{q.questionNumber}
+                        </span>
 
-                {/* Prompt Textarea */}
-                <div>
-                  <label className="text-[11px] font-semibold text-slate-400 block mb-1">
-                    Question Statement:
-                  </label>
-                  <textarea
-                    rows={2}
-                    value={q.prompt}
-                    onChange={(e) => handleUpdatePrompt(qIdx, e.target.value)}
-                    className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-indigo-500 transition-all font-medium leading-relaxed"
-                  />
-                </div>
+                        <span className="text-xs font-bold text-emerald-400 bg-emerald-950/40 border border-emerald-800/50 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                          <CheckCircleIcon size={12} />
+                          Correct: Option {q.correctOptionKey}
+                        </span>
 
-                {/* Options List */}
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <label className="text-[11px] font-semibold text-slate-400">
-                      Options (Click the radio to set Correct Answer):
-                    </label>
-                    <span className="text-[10px] text-slate-500">
-                      Green indicates student results key
-                    </span>
-                  </div>
+                        {q.sectionTitle && (
+                          <span className="text-[11px] font-semibold text-slate-400 bg-slate-800/80 border border-slate-700/60 px-2 py-0.5 rounded-md">
+                            {q.sectionTitle}
+                          </span>
+                        )}
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                    {q.options.map((opt, optIdx) => {
-                      const isCorrect = q.correctOptionKey === opt.key;
-                      return (
-                        <div
-                          key={opt.id}
-                          className={`flex items-center gap-2.5 p-2.5 rounded-xl border transition-all ${
-                            isCorrect
-                              ? 'bg-emerald-950/30 border-emerald-600/70'
-                              : 'bg-slate-800/70 border-slate-700/80 hover:border-slate-600'
-                          }`}
-                        >
-                          <button
-                            type="button"
-                            onClick={() => handleSetCorrectOption(qIdx, opt.key)}
-                            className={`h-6 w-6 rounded-full border-2 flex items-center justify-center shrink-0 cursor-pointer font-bold text-xs ${
-                              isCorrect
-                                ? 'bg-emerald-500 border-emerald-400 text-slate-950 shadow-xs'
-                                : 'bg-slate-800 border-slate-600 text-slate-400 hover:border-slate-500'
-                            }`}
-                            title={`Mark Option ${opt.key} as correct answer`}
-                          >
-                            {opt.key}
-                          </button>
+                        {q.needsReview && (
+                          <span className="text-[11px] font-black text-amber-300 bg-amber-950/60 border border-amber-700/60 px-2.5 py-0.5 rounded-md flex items-center gap-1">
+                            <AlertTriangleIcon size={12} /> Needs Review
+                          </span>
+                        )}
+                      </div>
 
-                          <input
-                            type="text"
-                            value={opt.text}
-                            onChange={(e) => handleUpdateOption(qIdx, optIdx, e.target.value)}
-                            className="flex-1 bg-transparent text-xs text-white focus:outline-none placeholder-slate-500"
-                            placeholder={`Option ${opt.key} text...`}
-                          />
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteQuestion(q.id)}
+                        className="text-slate-500 hover:text-rose-400 p-1.5 rounded-lg hover:bg-slate-800 transition-colors cursor-pointer"
+                        title="Delete this question"
+                      >
+                        <TrashIcon size={15} />
+                      </button>
+                    </div>
 
-                          {isCorrect && (
-                            <span className="text-[10px] font-black text-emerald-400 uppercase tracking-wider shrink-0 bg-emerald-950/60 px-1.5 py-0.5 rounded">
-                              ✓ Key
-                            </span>
+                    {/* Review Warnings Box */}
+                    {q.needsReview && q.reviewReasons && q.reviewReasons.length > 0 && (
+                      <div className="p-3 bg-amber-950/30 border border-amber-800/40 rounded-xl text-xs text-amber-300 space-y-1">
+                        <span className="font-bold text-amber-200">Validation flags:</span>
+                        {q.reviewReasons.map((r, rIdx) => (
+                          <p key={rIdx} className="text-[11px] text-amber-300/90">• {r}</p>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Associated Reading Passage Box (if any) */}
+                    {q.passageContext && (
+                      <div className="p-3.5 bg-indigo-950/20 border border-indigo-800/40 rounded-2xl text-xs space-y-1.5">
+                        <div className="flex items-center gap-1.5 font-bold text-indigo-300">
+                          <FileTextIcon size={13} />
+                          <span>Associated Passage / Directions:</span>
+                          {q.sectionTitle && (
+                            <span className="text-[10px] font-medium text-slate-400">({q.sectionTitle})</span>
                           )}
                         </div>
-                      );
-                    })}
+                        <p className="text-slate-300 text-xs leading-relaxed italic line-clamp-4 hover:line-clamp-none transition-all">
+                          {q.passageContext}
+                        </p>
+                      </div>
+                    )}
+
+                    {/* Prompt Textarea */}
+                    <div>
+                      <label className="text-[11px] font-semibold text-slate-400 block mb-1">
+                        Question Statement:
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={q.prompt}
+                        onChange={(e) => handleUpdatePrompt(q.id, e.target.value)}
+                        className="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm text-white focus:outline-none focus:border-indigo-500 transition-all font-medium leading-relaxed"
+                      />
+                    </div>
+
+                    {/* Options List */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="text-[11px] font-semibold text-slate-400">
+                          Options (Click the radio to set Correct Answer):
+                        </label>
+                        <span className="text-[10px] text-slate-500">
+                          Green indicates student results key
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        {q.options.map((opt, optIdx) => {
+                          const isCorrect = q.correctOptionKey === opt.key;
+                          const isLengthy = opt.text.length > 150;
+                          return (
+                            <div
+                              key={opt.id}
+                              className={`flex items-center gap-2.5 p-2.5 rounded-xl border transition-all ${
+                                isCorrect
+                                  ? 'bg-emerald-950/30 border-emerald-600/70'
+                                  : isLengthy
+                                  ? 'bg-rose-950/20 border-rose-700/60'
+                                  : 'bg-slate-800/70 border-slate-700/80 hover:border-slate-600'
+                              }`}
+                            >
+                              <button
+                                type="button"
+                                onClick={() => handleSetCorrectOption(q.id, opt.key)}
+                                className={`h-6 w-6 rounded-full border-2 flex items-center justify-center shrink-0 cursor-pointer font-bold text-xs ${
+                                  isCorrect
+                                    ? 'bg-emerald-500 border-emerald-400 text-slate-950 shadow-xs'
+                                    : 'bg-slate-800 border-slate-600 text-slate-400 hover:border-slate-500'
+                                }`}
+                                title={`Mark Option ${opt.key} as correct answer`}
+                              >
+                                {opt.key}
+                              </button>
+
+                              <input
+                                type="text"
+                                value={opt.text}
+                                onChange={(e) => handleUpdateOption(q.id, optIdx, e.target.value)}
+                                className="flex-1 bg-transparent text-xs text-white focus:outline-none placeholder-slate-500"
+                                placeholder={`Option ${opt.key} text...`}
+                              />
+
+                              {isCorrect && (
+                                <span className="text-[10px] font-black text-emerald-400 uppercase tracking-wider shrink-0 bg-emerald-950/60 px-1.5 py-0.5 rounded">
+                                  ✓ Key
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Explanation */}
+                    <div className="pt-2 border-t border-slate-800/60">
+                      <label className="text-[11px] font-semibold text-slate-400 block mb-1">
+                        Explanation / Solution Rationale (shown on results dashboard):
+                      </label>
+                      <input
+                        type="text"
+                        value={q.explanation}
+                        onChange={(e) => handleUpdateExplanation(q.id, e.target.value)}
+                        placeholder="Provide solution breakdown..."
+                        className="w-full bg-slate-800/60 border border-slate-700/60 rounded-xl px-3 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-indigo-500"
+                      />
+                    </div>
                   </div>
-                </div>
-
-                {/* Explanation */}
-                <div className="pt-2 border-t border-slate-800/60">
-                  <label className="text-[11px] font-semibold text-slate-400 block mb-1">
-                    Explanation / Solution Rationale (shown on results dashboard):
-                  </label>
-                  <input
-                    type="text"
-                    value={q.explanation}
-                    onChange={(e) => handleUpdateExplanation(qIdx, e.target.value)}
-                    placeholder="Provide solution breakdown..."
-                    className="w-full bg-slate-800/60 border border-slate-700/60 rounded-xl px-3 py-1.5 text-xs text-slate-300 focus:outline-none focus:border-indigo-500"
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {/* STEP 4: UPLOAD PAPER BUTTON */}
-          <div className="sticky bottom-20 lg:bottom-6 z-20 bg-slate-900/95 backdrop-blur-md border border-slate-800 rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <div>
-              <h4 className="text-sm sm:text-base font-extrabold text-white">Ready to Publish Test?</h4>
-              <p className="text-xs text-slate-400 mt-0.5">
-                Total {questions.length} questions • Scheduled for{' '}
-                <span className="text-white font-bold">{scheduledDate || 'TBD'}</span> at{' '}
-                <span className="text-white font-bold">{scheduledTime || 'TBD'}</span>
-              </p>
+                ))
+              )}
             </div>
 
-            <button
-              type="button"
-              disabled={isSubmitting}
-              onClick={handleUploadPaper}
-              className="flex items-center justify-center gap-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-black text-sm px-7 py-3.5 rounded-2xl shadow-lg shadow-indigo-600/40 hover:shadow-indigo-600/60 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer"
-            >
-              <UploadIcon size={18} />
-              <span>{isSubmitting ? 'Uploading Paper...' : 'Upload Paper & Showcase on Student Portal'}</span>
-            </button>
+            {/* STEP 4: UPLOAD PAPER BUTTON */}
+            <div className="sticky bottom-20 lg:bottom-6 z-20 bg-slate-900/95 backdrop-blur-md border border-slate-800 rounded-2xl sm:rounded-3xl p-4 sm:p-6 shadow-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h4 className="text-sm sm:text-base font-extrabold text-white">Ready to Publish Test?</h4>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Total {questions.length} questions • Scheduled for{' '}
+                  <span className="text-white font-bold">{scheduledDate || 'TBD'}</span> at{' '}
+                  <span className="text-white font-bold">{scheduledTime || 'TBD'}</span>
+                </p>
+              </div>
+
+              <button
+                type="button"
+                disabled={isSubmitting}
+                onClick={handleUploadPaper}
+                className="flex items-center justify-center gap-2.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-black text-xs sm:text-sm px-5 sm:px-7 py-3.5 rounded-2xl shadow-lg shadow-indigo-600/40 hover:shadow-indigo-600/60 hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer w-full sm:w-auto text-center"
+              >
+                <UploadIcon size={18} />
+                <span>{isSubmitting ? 'Uploading Paper...' : 'Upload Paper & Showcase on Student Portal'}</span>
+              </button>
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 };

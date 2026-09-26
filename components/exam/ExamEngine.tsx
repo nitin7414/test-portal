@@ -1009,7 +1009,7 @@ export const ExamEngine: React.FC<ExamEngineProps> = ({
       {/* ========================================================================= */}
       {/* MOBILE FIXED ACTION BOTTOM BAR (Always visible, thumb-reachable, no-scroll)*/}
       {/* ========================================================================= */}
-      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-slate-200 px-3 py-2.5 shadow-2xl flex items-center justify-between gap-2">
+      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/98 backdrop-blur-md border-t border-slate-200 px-3 pb-safe pt-2 shadow-2xl flex items-center justify-between gap-2">
         {/* Previous Button */}
         <button
           id="btn-prev-question-mobile"
@@ -1102,7 +1102,7 @@ export const ExamEngine: React.FC<ExamEngineProps> = ({
           />
 
           {/* Sheet Container */}
-          <div className="relative w-full max-h-[82vh] bg-white rounded-t-3xl border-t border-slate-200 p-5 shadow-2xl z-50 flex flex-col animate-slide-up">
+          <div className="relative w-full max-h-[82vh] bg-white rounded-t-3xl border-t border-slate-200 p-4 sm:p-5 pb-safe shadow-2xl z-50 flex flex-col animate-slide-up">
             {/* Sheet Handle */}
             <div className="w-12 h-1 bg-slate-300 rounded-full mx-auto mb-3" />
 
